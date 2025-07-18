@@ -12,6 +12,8 @@ import threading
 # Bot setup - Remove default help command
 intents = discord.Intents.default()
 intents.message_content = True
+# Note: members intent requires verification for bots in 100+ servers
+# Our username caching system works without it
 bot = commands.Bot(command_prefix='!', intents=intents, help_command=None)
 
 # Database setup
@@ -19,10 +21,11 @@ def init_db():
     conn = sqlite3.connect('bot_data.db')
     c = conn.cursor()
     
-    # XP and levels table
+    # XP and levels table with username cache
     c.execute('''CREATE TABLE IF NOT EXISTS users
                  (user_id INTEGER PRIMARY KEY, xp INTEGER DEFAULT 0, level INTEGER DEFAULT 1, 
-                  last_message TIMESTAMP, total_messages INTEGER DEFAULT 0)''')
+                  last_message TIMESTAMP, total_messages INTEGER DEFAULT 0, 
+                  username TEXT, display_name TEXT)''')
     
     # Bot configuration table
     c.execute('''CREATE TABLE IF NOT EXISTS config
@@ -68,6 +71,20 @@ def init_db():
         c.execute('INSERT OR REPLACE INTO db_version (version) VALUES (1)')
         print("✅ Database migrated to version 1")
     
+    if current_version < 2:
+        # Migration 2: Add username cache columns
+        try:
+            c.execute('ALTER TABLE users ADD COLUMN username TEXT')
+        except sqlite3.OperationalError:
+            pass
+        try:
+            c.execute('ALTER TABLE users ADD COLUMN display_name TEXT')
+        except sqlite3.OperationalError:
+            pass
+        
+        c.execute('INSERT OR REPLACE INTO db_version (version) VALUES (2)')
+        print("✅ Database migrated to version 2")
+    
     # Default configuration
     default_config = {
         'xp_per_message': '15',
@@ -106,7 +123,61 @@ def set_config(key, value):
     conn.commit()
     conn.close()
 
-def get_user_data(user_id):
+def get_user_display_name(ctx, user_id):
+    """Get user display name with multiple fallback methods"""
+    # Method 1: Try to get server member (for current nickname)
+    try:
+        member = ctx.guild.get_member(user_id)
+        if member:
+            return member.display_name
+    except:
+        pass
+    
+    # Method 2: Try bot cache
+    try:
+        user = bot.get_user(user_id)
+        if user:
+            return user.display_name
+    except:
+        pass
+    
+    # Method 3: Get cached name from database
+    try:
+        conn = sqlite3.connect('bot_data.db')
+        c = conn.cursor()
+        c.execute('SELECT display_name, username FROM users WHERE user_id = ?', (user_id,))
+        result = c.fetchone()
+        conn.close()
+        
+        if result:
+            cached_display_name, cached_username = result
+            if cached_display_name:
+                return cached_display_name
+            elif cached_username:
+                return cached_username
+    except:
+        pass
+    
+    # Method 4: Fallback to User ID
+    return f"User {user_id}"
+
+async def get_user_display_name_async(ctx, user_id):
+    """Async version with API fetch capability"""
+    # Try sync methods first
+    name = get_user_display_name(ctx, user_id)
+    if not name.startswith("User "):
+        return name
+    
+    # Method 2: Try to fetch user from Discord API (async)
+    try:
+        user = await bot.fetch_user(user_id)
+        if user:
+            return user.display_name
+    except:
+        pass
+    
+    # Fallback to the sync result
+    return name
     conn = sqlite3.connect('bot_data.db')
     c = conn.cursor()
     c.execute('SELECT * FROM users WHERE user_id = ?', (user_id,))
@@ -118,7 +189,7 @@ def get_user_data(user_id):
     conn.close()
     return result
 
-def update_user_xp(user_id, xp_gain):
+def update_user_xp(user_id, xp_gain, username=None, display_name=None):
     conn = sqlite3.connect('bot_data.db')
     c = conn.cursor()
     
@@ -132,9 +203,11 @@ def update_user_xp(user_id, xp_gain):
     new_level = int(new_xp // level_multiplier) + 1
     
     now_str = datetime.now().isoformat()
-    c.execute('''UPDATE users SET xp = ?, level = ?, last_message = ?, total_messages = ?
-                 WHERE user_id = ?''', 
-              (new_xp, new_level, now_str, total_messages + 1, user_id))
+    
+    # Update with username cache
+    c.execute('''UPDATE users SET xp = ?, level = ?, last_message = ?, total_messages = ?, 
+                 username = ?, display_name = ? WHERE user_id = ?''', 
+              (new_xp, new_level, now_str, total_messages + 1, username, display_name, user_id))
     conn.commit()
     conn.close()
     
@@ -161,9 +234,12 @@ async def on_message(message):
             # Handle old datetime format or invalid data
             pass
     
-    # Award XP
+    # Award XP and cache user info
     xp_gain = int(get_config('xp_per_message'))
-    level_up, new_level = update_user_xp(message.author.id, xp_gain)
+    username = message.author.name
+    display_name = message.author.display_name
+    
+    level_up, new_level = update_user_xp(message.author.id, xp_gain, username, display_name)
     
     if level_up:
         level_up_msg = get_config('level_up_message')
@@ -235,7 +311,7 @@ async def leaderboard_command(ctx, limit: int = 10):
     """Show the XP leaderboard"""
     conn = sqlite3.connect('bot_data.db')
     c = conn.cursor()
-    c.execute('SELECT user_id, xp, level FROM users ORDER BY xp DESC LIMIT ?', (limit,))
+    c.execute('SELECT user_id, xp, level, username, display_name FROM users ORDER BY xp DESC LIMIT ?', (limit,))
     top_users = c.fetchall()
     conn.close()
     
@@ -247,14 +323,47 @@ async def leaderboard_command(ctx, limit: int = 10):
         return
     
     leaderboard_text = ""
-    for i, (user_id, xp, level) in enumerate(top_users, 1):
-        # Try to get server nickname first, fall back to username
-        member = ctx.guild.get_member(user_id)
-        if member:
-            name = member.display_name
-        else:
-            user = bot.get_user(user_id)
-            name = user.display_name if user else f"User {user_id}"
+    for i, (user_id, xp, level, cached_username, cached_display_name) in enumerate(top_users, 1):
+        # Try multiple methods to get user name
+        name = None
+        
+        # Method 1: Try to get server member (for current nickname)
+        try:
+            member = ctx.guild.get_member(user_id)
+            if member:
+                name = member.display_name
+        except:
+            pass
+        
+        # Method 2: Try to fetch user from Discord API
+        if not name:
+            try:
+                user = await bot.fetch_user(user_id)
+                if user:
+                    name = user.display_name
+            except:
+                pass
+        
+        # Method 3: Try bot cache
+        if not name:
+            try:
+                user = bot.get_user(user_id)
+                if user:
+                    name = user.display_name
+            except:
+                pass
+        
+        # Method 4: Use cached display name from database
+        if not name and cached_display_name:
+            name = cached_display_name
+        
+        # Method 5: Use cached username from database
+        if not name and cached_username:
+            name = cached_username
+        
+        # Method 6: Fallback to User ID
+        if not name:
+            name = f"User {user_id}"
         
         medal = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else f"**{i}.**"
         leaderboard_text += f"{medal} **{name}**\n└ Level {level} • {xp:,} XP\n\n"
@@ -756,13 +865,9 @@ async def adventure_leaderboard_command(ctx, category='gold'):
     leaderboard_text = ""
     for i, result in enumerate(results, 1):
         user_id = result[0]
-        # Try to get server nickname first
-        member = ctx.guild.get_member(user_id)
-        if member:
-            name = member.display_name
-        else:
-            user = bot.get_user(user_id)
-            name = user.display_name if user else f"User {user_id}"
+        
+        # Use the helper function to get display name
+        name = await get_user_display_name_async(ctx, user_id)
         
         medal = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else f"**{i}.**"
         

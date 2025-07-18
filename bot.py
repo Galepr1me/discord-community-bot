@@ -123,6 +123,18 @@ def set_config(key, value):
     conn.commit()
     conn.close()
 
+def get_user_data(user_id):
+    conn = sqlite3.connect('bot_data.db')
+    c = conn.cursor()
+    c.execute('SELECT * FROM users WHERE user_id = ?', (user_id,))
+    result = c.fetchone()
+    if not result:
+        c.execute('INSERT INTO users (user_id) VALUES (?)', (user_id,))
+        conn.commit()
+        result = (user_id, 0, 1, None, 0, None, None)  # Include new username columns
+    conn.close()
+    return result
+
 def get_user_display_name(ctx, user_id):
     """Get user display name with multiple fallback methods"""
     # Method 1: Try to get server member (for current nickname)

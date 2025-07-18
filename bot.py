@@ -1,5 +1,5 @@
 import discord
-from discord.ext import commands
+from discord.ext import commands, tasks
 import sqlite3
 import random
 import asyncio
@@ -28,13 +28,45 @@ def init_db():
     c.execute('''CREATE TABLE IF NOT EXISTS config
                  (key TEXT PRIMARY KEY, value TEXT)''')
     
-    # Game data table
+    # Game data table with proper schema migration
     c.execute('''CREATE TABLE IF NOT EXISTS game_data
                  (user_id INTEGER PRIMARY KEY, health INTEGER DEFAULT 100, 
                   gold INTEGER DEFAULT 0, inventory TEXT DEFAULT '{}', 
                   location TEXT DEFAULT 'town', level INTEGER DEFAULT 1,
                   adventure_xp INTEGER DEFAULT 0, monsters_defeated INTEGER DEFAULT 0,
                   last_daily_quest DATE, daily_quest_progress TEXT DEFAULT '{}')''')
+    
+    # Database version tracking for migrations
+    c.execute('''CREATE TABLE IF NOT EXISTS db_version
+                 (version INTEGER PRIMARY KEY)''')
+    
+    # Check current database version
+    c.execute('SELECT version FROM db_version ORDER BY version DESC LIMIT 1')
+    current_version = c.fetchone()
+    current_version = current_version[0] if current_version else 0
+    
+    # Perform migrations if needed
+    if current_version < 1:
+        # Migration 1: Add new columns to game_data if they don't exist
+        try:
+            c.execute('ALTER TABLE game_data ADD COLUMN adventure_xp INTEGER DEFAULT 0')
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+        try:
+            c.execute('ALTER TABLE game_data ADD COLUMN monsters_defeated INTEGER DEFAULT 0')
+        except sqlite3.OperationalError:
+            pass
+        try:
+            c.execute('ALTER TABLE game_data ADD COLUMN last_daily_quest DATE')
+        except sqlite3.OperationalError:
+            pass
+        try:
+            c.execute('ALTER TABLE game_data ADD COLUMN daily_quest_progress TEXT DEFAULT "{}"')
+        except sqlite3.OperationalError:
+            pass
+        
+        c.execute('INSERT OR REPLACE INTO db_version (version) VALUES (1)')
+        print("✅ Database migrated to version 1")
     
     # Default configuration
     default_config = {
@@ -198,6 +230,7 @@ async def level_command(ctx, user: discord.Member = None):
     await ctx.send(embed=embed)
 
 @bot.command(name='leaderboard')
+@commands.cooldown(1, 30, commands.BucketType.guild)  # 1 use per 30 seconds per server
 async def leaderboard_command(ctx, limit: int = 10):
     """Show the XP leaderboard"""
     conn = sqlite3.connect('bot_data.db')
@@ -208,11 +241,26 @@ async def leaderboard_command(ctx, limit: int = 10):
     
     embed = discord.Embed(title="🏆 XP Leaderboard", color=0xffd700)
     
+    if not top_users:
+        embed.description = "No users found! Start chatting to gain XP!"
+        await ctx.send(embed=embed)
+        return
+    
+    leaderboard_text = ""
     for i, (user_id, xp, level) in enumerate(top_users, 1):
-        user = bot.get_user(user_id)
-        name = user.display_name if user else f"User {user_id}"
-        embed.add_field(name=f"{i}. {name}", 
-                       value=f"Level {level} | {xp} XP", inline=False)
+        # Try to get server nickname first, fall back to username
+        member = ctx.guild.get_member(user_id)
+        if member:
+            name = member.display_name
+        else:
+            user = bot.get_user(user_id)
+            name = user.display_name if user else f"User {user_id}"
+        
+        medal = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else f"**{i}.**"
+        leaderboard_text += f"{medal} **{name}**\n└ Level {level} • {xp:,} XP\n\n"
+    
+    embed.description = leaderboard_text
+    embed.set_footer(text=f"Showing top {len(top_users)} users • Use !level to check your rank")
     
     await ctx.send(embed=embed)
 
@@ -372,6 +420,7 @@ async def adventure_command(ctx):
     await ctx.send(embed=embed)
 
 @bot.command(name='action')
+@commands.cooldown(1, 3, commands.BucketType.user)  # 1 use per 3 seconds per user
 async def action_command(ctx, *, action):
     """Perform an action in the adventure game"""
     if get_config('game_enabled') != 'True':
@@ -679,19 +728,19 @@ async def adventure_leaderboard_command(ctx, category='gold'):
     c = conn.cursor()
     
     if category == 'gold':
-        c.execute('SELECT user_id, gold FROM game_data ORDER BY gold DESC LIMIT 10')
+        c.execute('SELECT user_id, gold FROM game_data WHERE gold > 0 ORDER BY gold DESC LIMIT 10')
         title = "💰 Adventure Gold Leaderboard"
-        format_func = lambda x: f"{x:,} gold"
+        icon = "💰"
     elif category == 'level':
-        c.execute('SELECT user_id, level, adventure_xp FROM game_data ORDER BY level DESC, adventure_xp DESC LIMIT 10')
-        title = "⭐ Adventure Level Leaderboard"
-        format_func = lambda x: f"Level {x[0]} ({x[1]} XP)" if isinstance(x, tuple) else f"Level {x}"
+        c.execute('SELECT user_id, level, adventure_xp FROM game_data WHERE adventure_xp > 0 ORDER BY level DESC, adventure_xp DESC LIMIT 10')
+        title = "⭐ Adventure Level Leaderboard" 
+        icon = "⭐"
     elif category == 'monsters':
-        c.execute('SELECT user_id, monsters_defeated FROM game_data ORDER BY monsters_defeated DESC LIMIT 10')
+        c.execute('SELECT user_id, monsters_defeated FROM game_data WHERE monsters_defeated > 0 ORDER BY monsters_defeated DESC LIMIT 10')
         title = "⚔️ Monster Hunter Leaderboard"
-        format_func = lambda x: f"{x} monsters defeated"
+        icon = "⚔️"
     else:
-        await ctx.send("❌ Invalid category. Use: gold, level, or monsters")
+        await ctx.send("❌ Invalid category. Use: `gold`, `level`, or `monsters`")
         return
     
     results = c.fetchall()
@@ -701,20 +750,34 @@ async def adventure_leaderboard_command(ctx, category='gold'):
     
     if not results:
         embed.description = "No adventure data yet! Start playing with `!adventure`"
-    else:
-        for i, result in enumerate(results, 1):
-            user_id = result[0]
+        await ctx.send(embed=embed)
+        return
+    
+    leaderboard_text = ""
+    for i, result in enumerate(results, 1):
+        user_id = result[0]
+        # Try to get server nickname first
+        member = ctx.guild.get_member(user_id)
+        if member:
+            name = member.display_name
+        else:
             user = bot.get_user(user_id)
             name = user.display_name if user else f"User {user_id}"
-            
-            if category == 'level':
-                value = format_func((result[1], result[2]))
-            else:
-                value = format_func(result[1])
-            
-            embed.add_field(name=f"{i}. {name}", value=value, inline=False)
+        
+        medal = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else f"**{i}.**"
+        
+        if category == 'gold':
+            value = f"{result[1]:,} gold"
+        elif category == 'level':
+            value = f"Level {result[1]} ({result[2]:,} XP)"
+        else:  # monsters
+            value = f"{result[1]:,} monsters defeated"
+        
+        leaderboard_text += f"{medal} **{name}**\n└ {icon} {value}\n\n"
     
-    embed.set_footer(text="Use !adventure_leaderboard <gold/level/monsters> to see different rankings")
+    embed.description = leaderboard_text
+    embed.set_footer(text="Use !adventure_leaderboard <gold/level/monsters> for different rankings")
+    
     await ctx.send(embed=embed)
 
 @bot.command(name='daily_quest')
@@ -816,47 +879,230 @@ async def on_member_join(member):
 @bot.event
 async def on_command_error(ctx, error):
     if isinstance(error, commands.MissingPermissions):
-        await ctx.send("❌ You don't have permission to use this command.")
+        embed = discord.Embed(
+            title="❌ Permission Error", 
+            description="You don't have permission to use this command.",
+            color=0xff0000
+        )
+        await ctx.send(embed=embed)
+    elif isinstance(error, commands.CommandOnCooldown):
+        embed = discord.Embed(
+            title="⏱️ Cooldown Active", 
+            description=f"Command is on cooldown. Try again in **{error.retry_after:.1f}** seconds.",
+            color=0xffa500
+        )
+        await ctx.send(embed=embed, delete_after=5)  # Auto-delete after 5 seconds
     elif isinstance(error, commands.CommandNotFound):
-        await ctx.send("❌ Command not found. Use `!help` to see available commands.")
+        # Don't respond to unknown commands to avoid spam
+        return
+    elif isinstance(error, commands.BadArgument):
+        embed = discord.Embed(
+            title="❓ Invalid Input", 
+            description="Invalid command usage. Use `!help_custom` for command help.",
+            color=0xffa500
+        )
+        await ctx.send(embed=embed)
     else:
-        await ctx.send(f"❌ An error occurred: {str(error)}")
+        # Log unexpected errors but don't show full error to users
+        print(f"Unexpected error in {ctx.command}: {error}")
+        embed = discord.Embed(
+            title="⚠️ Something went wrong", 
+            description="An unexpected error occurred. Please try again.",
+            color=0xff0000
+        )
+        await ctx.send(embed=embed)
 
-# Help command
+@bot.command(name='stats')
+@commands.cooldown(1, 60, commands.BucketType.guild)
+async def stats_command(ctx):
+    """Show server bot statistics"""
+    conn = sqlite3.connect('bot_data.db')
+    c = conn.cursor()
+    
+    # Get XP stats
+    c.execute('SELECT COUNT(*), SUM(total_messages), MAX(level), SUM(xp) FROM users WHERE total_messages > 0')
+    xp_stats = c.fetchone()
+    total_users, total_messages, max_level, total_xp = xp_stats
+    
+    # Get adventure stats
+    c.execute('SELECT COUNT(*), SUM(gold), MAX(level), SUM(monsters_defeated) FROM game_data WHERE gold > 0 OR monsters_defeated > 0')
+    adventure_stats = c.fetchone()
+    adventure_users, total_gold, max_adventure_level, total_monsters = adventure_stats
+    
+    # Get daily quest completion rate
+    today = datetime.now().date().isoformat()
+    c.execute('SELECT COUNT(*) FROM game_data WHERE last_daily_quest = ? AND daily_quest_progress LIKE "%claimed_%"', (today,))
+    daily_completions = c.fetchone()[0]
+    
+    conn.close()
+    
+    embed = discord.Embed(title="📊 Server Bot Statistics", color=0x7289da)
+    
+    # XP Statistics
+    xp_text = (
+        f"👥 Active Users: **{total_users or 0:,}**\n"
+        f"💬 Messages Sent: **{total_messages or 0:,}**\n"
+        f"⭐ Highest Level: **{max_level or 0}**\n"
+        f"🎯 Total XP Earned: **{total_xp or 0:,}**"
+    )
+    embed.add_field(name="📈 Chat Activity", value=xp_text, inline=True)
+    
+    # Adventure Statistics  
+    adventure_text = (
+        f"🎮 Adventurers: **{adventure_users or 0:,}**\n"
+        f"💰 Gold Collected: **{total_gold or 0:,}**\n"
+        f"⚔️ Monsters Defeated: **{total_monsters or 0:,}**\n"
+        f"🌟 Max Adventure Level: **{max_adventure_level or 0}**"
+    )
+    embed.add_field(name="🏔️ Adventure Progress", value=adventure_text, inline=True)
+    
+    # Today's Activity
+    today_text = (
+        f"📋 Daily Quests Completed: **{daily_completions or 0}**\n"
+        f"🎲 Rare Events Today: *Happening live!*\n"
+        f"👑 Current Top Player: *Check leaderboards!*\n"
+        f"🤖 Bot Uptime: *24/7 Online*"
+    )
+    embed.add_field(name="📅 Today's Activity", value=today_text, inline=False)
+    
+    # Fun Facts
+    if total_messages and total_users:
+        avg_messages = total_messages // total_users
+        fun_facts = (
+            f"📝 Average messages per user: **{avg_messages}**\n"
+            f"🎪 Most active feature: **{'Adventure Game' if adventure_users > total_users // 2 else 'XP System'}**\n"
+            f"💎 Community engagement: **{'High' if total_users > 10 else 'Growing'}**"
+        )
+        embed.add_field(name="🎉 Fun Facts", value=fun_facts, inline=False)
+    
+    embed.set_footer(text="Statistics update in real-time • Use !leaderboard to see rankings")
+    embed.timestamp = datetime.now()
+    
+    await ctx.send(embed=embed)
+
+# Help command with rich embed design
 @bot.command(name='help_custom')
 async def help_custom(ctx):
     """Show all available commands"""
-    embed = discord.Embed(title="🤖 Bot Commands", color=0x3498db)
     
-    embed.add_field(name="📊 XP System", 
-                   value="`!level` - Check your level\n`!leaderboard` - View top users", 
-                   inline=False)
+    # Main help embed
+    embed = discord.Embed(
+        title="🤖 Community Bot Commands", 
+        description="Your complete guide to XP systems and epic adventures!",
+        color=0x00d4ff
+    )
     
-    embed.add_field(name="🎮 Adventure Game", 
-                   value="`!adventure` - Start/continue adventure\n`!action <action>` - Perform action\n`!inventory` - Check inventory\n`!buy <item>` - Buy from shop\n`!use <item>` - Use consumable items", 
-                   inline=False)
-                   
-    embed.add_field(name="🏆 Adventure Rankings", 
-                   value="`!adventure_leaderboard gold` - Top gold collectors\n`!adventure_leaderboard level` - Highest adventure levels\n`!adventure_leaderboard monsters` - Monster hunters", 
-                   inline=False)
+    embed.set_thumbnail(url="https://i.imgur.com/placeholder.png")  # You can replace with your bot's avatar
     
-    embed.add_field(name="📋 Daily Quests", 
-                   value="`!daily_quest` - Check today's quest\n`!claim_quest` - Claim completed quest reward", 
-                   inline=False)
+    # XP System Section
+    xp_commands = (
+        "🔸 `!level` - View your XP and level\n"
+        "🔸 `!level @user` - Check someone else's level\n" 
+        "🔸 `!leaderboard` - See top XP earners\n"
+        "💬 *Gain XP automatically by chatting!*"
+    )
+    embed.add_field(
+        name="📊 XP & Leveling System", 
+        value=xp_commands, 
+        inline=False
+    )
     
-    embed.add_field(name="⚙️ Admin Commands", 
-                   value="`!config list` - View all settings\n`!config set <key> <value>` - Change setting\n`!config get <key>` - Get setting value", 
-                   inline=False)
+    # Adventure Game Section  
+    adventure_commands = (
+        "🔸 `!adventure` - Start your journey\n"
+        "🔸 `!action <explore/hunt/mine>` - Take actions\n"
+        "🔸 `!inventory` - Check your items\n"
+        "🔸 `!use <item>` - Use potions & scrolls\n"
+        "🔸 `!buy <item>` - Shop in town\n"
+        "⚡ *Rare events, boss battles & more!*"
+    )
+    embed.add_field(
+        name="🎮 Adventure RPG", 
+        value=adventure_commands, 
+        inline=False
+    )
     
-    embed.add_field(name="🎯 New Features", 
-                   value="• **Rare Events** - 5% chance for epic discoveries!\n• **Boss Battles** - 3% chance to fight legendary monsters\n• **Functional Items** - Potions heal, weapons boost damage\n• **Adventure Leveling** - Separate progression system\n• **Daily Quests** - New challenges every day", 
-                   inline=False)
+    # Competition Section
+    competition_commands = (
+        "🔸 `!adventure_leaderboard gold` - Top collectors 💰\n"
+        "🔸 `!adventure_leaderboard level` - Highest adventurers ⭐\n"
+        "🔸 `!adventure_leaderboard monsters` - Monster hunters ⚔️\n"
+        "🏆 *Compete for glory and bragging rights!*"
+    )
+    embed.add_field(
+        name="🏆 Leaderboards & Rankings", 
+        value=competition_commands, 
+        inline=False
+    )
     
-    embed.add_field(name="📋 Key Settings (Admins)", 
-                   value="• `rare_event_chance` - Rare discovery chance (%)\n• `boss_encounter_chance` - Boss battle chance (%)\n• `daily_quests_enabled` - Enable daily quests\n• `adventure_leaderboard_enabled` - Show rankings\n• Standard XP settings still available", 
-                   inline=False)
+    # Daily Quests Section
+    quest_commands = (
+        "🔸 `!daily_quest` - Check today's challenge\n"
+        "🔸 `!claim_quest` - Collect your rewards\n"
+        "📋 *New quest every day with bonus gold!*"
+    )
+    embed.add_field(
+        name="📋 Daily Quest System", 
+        value=quest_commands, 
+        inline=False
+    )
+    
+    # Quick Start Guide
+    quick_start = (
+        "1️⃣ Chat normally to gain XP\n"
+        "2️⃣ Use `!adventure` to start the game\n"
+        "3️⃣ Try `!action explore` for your first adventure\n"
+        "4️⃣ Check `!daily_quest` for bonus objectives"
+    )
+    embed.add_field(
+        name="🚀 Quick Start Guide", 
+        value=quick_start, 
+        inline=False
+    )
+    
+    # Footer with additional info
+    embed.set_footer(
+        text="💡 Tip: Start in Town, then explore Forest and Cave! • 🎲 Watch for rare events!",
+        icon_url="https://i.imgur.com/info_icon.png"  # Optional info icon
+    )
     
     await ctx.send(embed=embed)
+    
+    # Send admin commands separately if user has permissions
+    if ctx.author.guild_permissions.administrator:
+        admin_embed = discord.Embed(
+            title="⚙️ Admin Commands", 
+            description="Configure your bot without touching code!",
+            color=0xff6b35
+        )
+        
+        config_commands = (
+            "🔸 `!config list` - View all settings\n"
+            "🔸 `!config get <key>` - Check specific setting\n"
+            "🔸 `!config set <key> <value>` - Change setting\n"
+        )
+        admin_embed.add_field(
+            name="🛠️ Configuration", 
+            value=config_commands, 
+            inline=False
+        )
+        
+        key_settings = (
+            "• `xp_per_message` - XP gained per message\n"
+            "• `rare_event_chance` - Rare discovery rate (%)\n"
+            "• `boss_encounter_chance` - Boss battle rate (%)\n"
+            "• `daily_quests_enabled` - Enable daily quests\n"
+            "• `game_enabled` - Enable/disable adventure game"
+        )
+        admin_embed.add_field(
+            name="🔧 Key Settings", 
+            value=key_settings, 
+            inline=False
+        )
+        
+        admin_embed.set_footer(text="🔐 Admin-only commands • Use !config list to see all options")
+        
+        await ctx.send(embed=admin_embed)
 
 # Flask web server to keep Render happy
 app = Flask(__name__)

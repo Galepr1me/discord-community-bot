@@ -32,7 +32,9 @@ def init_db():
     c.execute('''CREATE TABLE IF NOT EXISTS game_data
                  (user_id INTEGER PRIMARY KEY, health INTEGER DEFAULT 100, 
                   gold INTEGER DEFAULT 0, inventory TEXT DEFAULT '{}', 
-                  location TEXT DEFAULT 'town', level INTEGER DEFAULT 1)''')
+                  location TEXT DEFAULT 'town', level INTEGER DEFAULT 1,
+                  adventure_xp INTEGER DEFAULT 0, monsters_defeated INTEGER DEFAULT 0,
+                  last_daily_quest DATE, daily_quest_progress TEXT DEFAULT '{}')''')
     
     # Default configuration
     default_config = {
@@ -42,7 +44,12 @@ def init_db():
         'xp_channel': 'None',
         'game_enabled': 'True',
         'welcome_message': 'Welcome to the server, {user}!',
-        'level_up_message': 'Congratulations {user}! You reached level {level}!'
+        'level_up_message': 'Congratulations {user}! You reached level {level}!',
+        'rare_event_chance': '5',
+        'legendary_event_chance': '1',
+        'daily_quests_enabled': 'True',
+        'adventure_leaderboard_enabled': 'True',
+        'boss_encounter_chance': '3'
     }
     
     for key, value in default_config.items():
@@ -233,11 +240,23 @@ class Game:
         }
         
         self.items = {
-            'Health Potion': {'price': 20, 'effect': 'heal'},
-            'Sword': {'price': 100, 'effect': 'weapon'},
-            'Shield': {'price': 80, 'effect': 'defense'},
-            'Magic Scroll': {'price': 150, 'effect': 'magic'}
+            'Health Potion': {'price': 20, 'effect': 'heal', 'value': 50},
+            'Sword': {'price': 100, 'effect': 'weapon', 'value': 15},
+            'Shield': {'price': 80, 'effect': 'defense', 'value': 10},
+            'Magic Scroll': {'price': 150, 'effect': 'magic', 'value': 25}
         }
+        
+        self.bosses = {
+            'forest': {'name': 'Giant Wolf Alpha', 'health': 80, 'gold': 200, 'xp': 100},
+            'cave': {'name': 'Ancient Dragon', 'health': 120, 'gold': 500, 'xp': 200}
+        }
+        
+        self.daily_quests = [
+            {'name': 'Monster Hunter', 'description': 'Defeat 5 monsters', 'target': 5, 'reward': 100, 'type': 'monsters'},
+            {'name': 'Explorer', 'description': 'Explore 10 times', 'target': 10, 'reward': 75, 'type': 'explore'},
+            {'name': 'Miner', 'description': 'Mine 15 times', 'target': 15, 'reward': 80, 'type': 'mine'},
+            {'name': 'Gold Collector', 'description': 'Collect 300 gold', 'target': 300, 'reward': 50, 'type': 'gold'}
+        ]
 
     def get_game_data(self, user_id):
         conn = sqlite3.connect('bot_data.db')
@@ -247,18 +266,64 @@ class Game:
         if not result:
             c.execute('INSERT INTO game_data (user_id) VALUES (?)', (user_id,))
             conn.commit()
-            result = (user_id, 100, 0, '{}', 'town', 1)
+            today = datetime.now().date().isoformat()
+            result = (user_id, 100, 0, '{}', 'town', 1, 0, 0, today, '{}')
         conn.close()
         return result
 
-    def update_game_data(self, user_id, health, gold, inventory, location, level):
+    def update_game_data(self, user_id, health, gold, inventory, location, level, adventure_xp=None, monsters_defeated=None, daily_quest_progress=None):
         conn = sqlite3.connect('bot_data.db')
         c = conn.cursor()
-        c.execute('''UPDATE game_data SET health = ?, gold = ?, inventory = ?, 
-                     location = ?, level = ? WHERE user_id = ?''',
-                  (health, gold, inventory, location, level, user_id))
+        
+        if adventure_xp is not None and monsters_defeated is not None and daily_quest_progress is not None:
+            c.execute('''UPDATE game_data SET health = ?, gold = ?, inventory = ?, 
+                         location = ?, level = ?, adventure_xp = ?, monsters_defeated = ?, daily_quest_progress = ?
+                         WHERE user_id = ?''',
+                      (health, gold, inventory, location, level, adventure_xp, monsters_defeated, daily_quest_progress, user_id))
+        else:
+            c.execute('''UPDATE game_data SET health = ?, gold = ?, inventory = ?, 
+                         location = ?, level = ? WHERE user_id = ?''',
+                      (health, gold, inventory, location, level, user_id))
         conn.commit()
         conn.close()
+
+    def get_daily_quest(self, user_id):
+        import hashlib
+        today = datetime.now().date().isoformat()
+        # Generate consistent daily quest based on user ID and date
+        seed = hashlib.md5(f"{user_id}{today}".encode()).hexdigest()
+        random.seed(int(seed[:8], 16))
+        quest = random.choice(self.daily_quests)
+        random.seed()  # Reset random seed
+        return quest
+
+    def update_quest_progress(self, user_id, quest_type, amount=1):
+        user_data = self.get_game_data(user_id)
+        today = datetime.now().date().isoformat()
+        last_quest_date = user_data[8] if len(user_data) > 8 else today
+        progress_str = user_data[9] if len(user_data) > 9 else '{}'
+        
+        # Reset progress if new day
+        if last_quest_date != today:
+            progress = {}
+        else:
+            try:
+                progress = json.loads(progress_str)
+            except:
+                progress = {}
+        
+        # Update progress
+        progress[quest_type] = progress.get(quest_type, 0) + amount
+        
+        # Update database
+        conn = sqlite3.connect('bot_data.db')
+        c = conn.cursor()
+        c.execute('UPDATE game_data SET last_daily_quest = ?, daily_quest_progress = ? WHERE user_id = ?',
+                  (today, json.dumps(progress), user_id))
+        conn.commit()
+        conn.close()
+        
+        return progress
 
 game = Game()
 
@@ -273,6 +338,8 @@ async def adventure_command(ctx):
     location = user_data[4]
     health = user_data[1]
     gold = user_data[2]
+    adventure_level = user_data[5] if len(user_data) > 5 else 1
+    adventure_xp = user_data[6] if len(user_data) > 6 else 0
     
     loc_info = game.locations[location]
     
@@ -280,6 +347,7 @@ async def adventure_command(ctx):
     embed.add_field(name="Location", value=loc_info['description'], inline=False)
     embed.add_field(name="Health", value=f"❤️ {health}/100", inline=True)
     embed.add_field(name="Gold", value=f"💰 {gold}", inline=True)
+    embed.add_field(name="Adventure Level", value=f"⭐ {adventure_level} ({adventure_xp} XP)", inline=True)
     embed.add_field(name="Available Actions", 
                    value=", ".join(loc_info['actions']), inline=False)
     
@@ -287,7 +355,19 @@ async def adventure_command(ctx):
         embed.add_field(name="Travel to", 
                        value=", ".join(loc_info['connections']), inline=False)
     
-    embed.set_footer(text="Use !action <action_name> to perform actions")
+    # Show daily quest if enabled
+    if get_config('daily_quests_enabled') == 'True':
+        daily_quest = game.get_daily_quest(ctx.author.id)
+        progress_data = game.update_quest_progress(ctx.author.id, 'check', 0)  # Just check, don't increment
+        quest_progress = progress_data.get(daily_quest['type'], 0)
+        
+        quest_status = f"**Daily Quest**: {daily_quest['name']}\n"
+        quest_status += f"{daily_quest['description']} ({quest_progress}/{daily_quest['target']})\n"
+        quest_status += f"Reward: {daily_quest['reward']} gold 💰"
+        
+        embed.add_field(name="📋 Today's Quest", value=quest_status, inline=False)
+    
+    embed.set_footer(text="Use !action <action_name> to perform actions • !use <item> to use items")
     
     await ctx.send(embed=embed)
 
@@ -298,15 +378,23 @@ async def action_command(ctx, *, action):
         return
         
     user_data = game.get_game_data(ctx.author.id)
-    user_id, health, gold, inventory_str, location, level = user_data
-    inventory = json.loads(inventory_str)
+    user_id = user_data[0]
+    health = user_data[1]
+    gold = user_data[2]
+    inventory_str = user_data[3]
+    location = user_data[4]
+    adventure_level = user_data[5] if len(user_data) > 5 else 1
+    adventure_xp = user_data[6] if len(user_data) > 6 else 0
+    monsters_defeated = user_data[7] if len(user_data) > 7 else 0
+    daily_progress_str = user_data[9] if len(user_data) > 9 else '{}'
     
+    inventory = json.loads(inventory_str)
     loc_info = game.locations[location]
     
     # Handle movement
     if action in game.locations:
         if action in loc_info.get('connections', []):
-            game.update_game_data(user_id, health, gold, inventory_str, action, level)
+            game.update_game_data(user_id, health, gold, inventory_str, action, adventure_level, adventure_xp, monsters_defeated, daily_progress_str)
             await ctx.send(f"🚶 You travel to the {action}.")
             await adventure_command(ctx)
             return
@@ -320,72 +408,188 @@ async def action_command(ctx, *, action):
         return
     
     result = ""
+    xp_gained = 10  # Base XP for any action
+    quest_updates = {}
     
-    if action == 'explore':
-        outcomes = [
-            "🔍 You found a hidden treasure! +50 gold",
-            "🕷️ You encountered a spider but escaped! -10 health",
-            "💎 You discovered a valuable gem! +30 gold",
-            "🍄 You found some berries and feel refreshed! +20 health",
-            "❌ You found nothing interesting."
+    # Check for rare events first
+    rare_chance = int(get_config('rare_event_chance'))
+    legendary_chance = int(get_config('legendary_event_chance'))
+    boss_chance = int(get_config('boss_encounter_chance'))
+    
+    random_roll = random.randint(1, 100)
+    
+    # Legendary Event (1% default)
+    if random_roll <= legendary_chance:
+        legendary_rewards = [
+            ("🌟 You discovered an ANCIENT TREASURE CHEST! Legendary find!", 800, 50, 200),
+            ("👑 You found the Crown of Kings! A truly legendary artifact!", 1000, 0, 300),
+            ("🗡️ You uncovered Excalibur! The legendary sword grants you power!", 500, 100, 250)
         ]
-        outcome = random.choice(outcomes)
-        result = outcome
+        event_text, gold_reward, health_reward, xp_reward = random.choice(legendary_rewards)
+        gold += gold_reward
+        health = min(100, health + health_reward)
+        xp_gained = xp_reward
+        result = event_text
+        quest_updates['gold'] = gold_reward
         
-        if "50 gold" in outcome:
-            gold += 50
-        elif "30 gold" in outcome:
-            gold += 30
-        elif "10 health" in outcome:
-            health = max(0, health - 10)
-        elif "20 health" in outcome:
-            health = min(100, health + 20)
-    
-    elif action == 'hunt' and location == 'forest':
-        if random.random() < 0.6:  # 60% success rate
-            monster = random.choice(loc_info['monsters'])
-            gold_reward = random.randint(20, 50)
-            health_loss = random.randint(5, 15)
-            gold += gold_reward
-            health = max(0, health - health_loss)
-            result = f"⚔️ You defeated a {monster}! +{gold_reward} gold, -{health_loss} health"
+    # Boss Encounter (3% default)
+    elif random_roll <= boss_chance + legendary_chance and location in game.bosses:
+        boss = game.bosses[location]
+        # Boss fight calculation
+        player_power = adventure_level * 10 + inventory.get('Sword', 0) * 15 + inventory.get('Shield', 0) * 5
+        success_chance = min(90, max(20, player_power - boss['health'] + 50))
+        
+        if random.randint(1, 100) <= success_chance:
+            gold += boss['gold']
+            adventure_xp += boss['xp']
+            monsters_defeated += 1
+            result = f"⚔️ BOSS BATTLE! You defeated the {boss['name']}! +{boss['gold']} gold, +{boss['xp']} adventure XP!"
+            quest_updates['monsters'] = 1
+            quest_updates['gold'] = boss['gold']
         else:
-            result = "🏃 You couldn't find any monsters to hunt."
+            health_loss = random.randint(30, 50)
+            health = max(1, health - health_loss)
+            result = f"💀 BOSS BATTLE! The {boss['name']} overpowered you! -{health_loss} health. Train more and try again!"
     
-    elif action == 'shop' and location == 'town':
-        shop_embed = discord.Embed(title="🏪 Town Shop", color=0xe74c3c)
-        for item, info in game.items.items():
-            shop_embed.add_field(name=item, value=f"💰 {info['price']} gold", inline=True)
-        shop_embed.set_footer(text="Use !buy <item_name> to purchase")
-        await ctx.send(embed=shop_embed)
-        return
+    # Rare Event (5% default)
+    elif random_roll <= rare_chance + boss_chance + legendary_chance:
+        rare_events = [
+            ("💎 You found a rare gemstone! Sparkling treasure!", random.randint(150, 300), 0, 50),
+            ("🧙‍♂️ A mysterious wizard grants you a boon!", random.randint(100, 200), random.randint(20, 40), 75),
+            ("📜 You discovered an ancient map to hidden treasure!", random.randint(200, 400), 0, 60),
+            ("🍀 A lucky clover boosts your fortune!", random.randint(175, 350), random.randint(15, 30), 80)
+        ]
+        event_text, gold_reward, health_reward, xp_reward = random.choice(rare_events)
+        gold += gold_reward
+        health = min(100, health + health_reward)
+        xp_gained = xp_reward
+        result = f"✨ RARE EVENT! {event_text}"
+        quest_updates['gold'] = gold_reward
     
-    elif action == 'rest' and location == 'town':
-        health = 100
-        result = "😴 You rest at the inn and restore full health!"
-    
-    elif action == 'mine' and location == 'cave':
-        gold_found = random.randint(10, 40)
-        gold += gold_found
-        result = f"⛏️ You mined some precious ore! +{gold_found} gold"
-    
+    # Normal actions
     else:
-        result = f"🤷 You {action} but nothing happens."
+        if action == 'explore':
+            quest_updates['explore'] = 1
+            outcomes = [
+                ("🔍 You found a hidden treasure! +50 gold", 50, 0),
+                ("🕷️ You encountered a spider but escaped! -10 health", 0, -10),
+                ("💎 You discovered a valuable gem! +30 gold", 30, 0),
+                ("🍄 You found some berries and feel refreshed! +20 health", 0, 20),
+                ("❌ You found nothing interesting.", 0, 0),
+                ("🗝️ You found an old key! +25 gold", 25, 0)
+            ]
+            outcome_text, gold_change, health_change = random.choice(outcomes)
+            result = outcome_text
+            gold += gold_change
+            health = max(0, min(100, health + health_change))
+            if gold_change > 0:
+                quest_updates['gold'] = gold_change
+        
+        elif action == 'hunt' and location == 'forest':
+            quest_updates['explore'] = 1
+            if random.random() < 0.7:  # 70% success rate
+                monster = random.choice(loc_info['monsters'])
+                gold_reward = random.randint(25, 60)
+                health_loss = random.randint(5, 20)
+                
+                # Apply weapon bonus
+                weapon_bonus = inventory.get('Sword', 0) * 10
+                shield_defense = inventory.get('Shield', 0) * 5
+                gold_reward += weapon_bonus
+                health_loss = max(1, health_loss - shield_defense)
+                
+                gold += gold_reward
+                health = max(0, health - health_loss)
+                monsters_defeated += 1
+                adventure_xp += 25
+                result = f"⚔️ You defeated a {monster}! +{gold_reward} gold, -{health_loss} health, +25 adventure XP"
+                quest_updates['monsters'] = 1
+                quest_updates['gold'] = gold_reward
+            else:
+                result = "🏃 You couldn't find any monsters to hunt."
+        
+        elif action == 'shop' and location == 'town':
+            shop_embed = discord.Embed(title="🏪 Town Shop", color=0xe74c3c)
+            for item, info in game.items.items():
+                effect_desc = f"({info['effect'].title()}: +{info['value']})" if 'value' in info else ""
+                shop_embed.add_field(name=item, value=f"💰 {info['price']} gold {effect_desc}", inline=True)
+            shop_embed.set_footer(text="Use !buy <item_name> to purchase")
+            await ctx.send(embed=shop_embed)
+            return
+        
+        elif action == 'rest' and location == 'town':
+            health = 100
+            result = "😴 You rest at the inn and restore full health!"
+        
+        elif action == 'mine' and location == 'cave':
+            quest_updates['mine'] = 1
+            quest_updates['explore'] = 1
+            gold_found = random.randint(15, 50)
+            gold += gold_found
+            adventure_xp += 15
+            result = f"⛏️ You mined some precious ore! +{gold_found} gold, +15 adventure XP"
+            quest_updates['gold'] = gold_found
+        
+        else:
+            result = f"🤷 You {action} but nothing notable happens."
+    
+    # Level up adventure character
+    adventure_xp += xp_gained
+    new_adventure_level = (adventure_xp // 200) + 1  # 200 XP per adventure level
+    if new_adventure_level > adventure_level:
+        result += f"\n🎉 Adventure Level Up! You are now level {new_adventure_level}!"
+        adventure_level = new_adventure_level
+    
+    # Update quest progress
+    if get_config('daily_quests_enabled') == 'True':
+        for quest_type, amount in quest_updates.items():
+            game.update_quest_progress(user_id, quest_type, amount)
     
     # Update game data
-    game.update_game_data(user_id, health, gold, json.dumps(inventory), location, level)
+    game.update_game_data(user_id, health, gold, json.dumps(inventory), location, adventure_level, adventure_xp, monsters_defeated, daily_progress_str)
     
     embed = discord.Embed(title="Action Result", description=result, color=0x2ecc71)
     embed.add_field(name="Health", value=f"❤️ {health}/100", inline=True)
     embed.add_field(name="Gold", value=f"💰 {gold}", inline=True)
+    embed.add_field(name="Adventure Level", value=f"⭐ {adventure_level}", inline=True)
     
+    await ctx.send(embed=embed)
+
+@bot.command(name='inventory')
+async def inventory_command(ctx):
+    """Check your inventory"""
+    user_data = game.get_game_data(ctx.author.id)
+    inventory_str = user_data[3]
+    inventory = json.loads(inventory_str)
+    
+    if not inventory:
+        await ctx.send("🎒 Your inventory is empty.")
+        return
+    
+    embed = discord.Embed(title="🎒 Your Inventory", color=0x95a5a6)
+    for item, count in inventory.items():
+        item_info = game.items.get(item, {})
+        effect_text = ""
+        if 'effect' in item_info and 'value' in item_info:
+            effect_text = f" ({item_info['effect'].title()}: +{item_info['value']})"
+        embed.add_field(name=item, value=f"x{count}{effect_text}", inline=True)
+    
+    embed.set_footer(text="Use !use <item> to use consumable items")
     await ctx.send(embed=embed)
 
 @bot.command(name='buy')
 async def buy_command(ctx, *, item_name):
     """Buy an item from the shop"""
     user_data = game.get_game_data(ctx.author.id)
-    user_id, health, gold, inventory_str, location, level = user_data
+    user_id = user_data[0]
+    health = user_data[1]
+    gold = user_data[2]
+    inventory_str = user_data[3]
+    location = user_data[4]
+    adventure_level = user_data[5] if len(user_data) > 5 else 1
+    adventure_xp = user_data[6] if len(user_data) > 6 else 0
+    monsters_defeated = user_data[7] if len(user_data) > 7 else 0
+    daily_progress_str = user_data[9] if len(user_data) > 9 else '{}'
     
     if location != 'town':
         await ctx.send("❌ You can only shop in town!")
@@ -404,24 +608,189 @@ async def buy_command(ctx, *, item_name):
     inventory[item_name] = inventory.get(item_name, 0) + 1
     gold -= item['price']
     
-    game.update_game_data(user_id, health, gold, json.dumps(inventory), location, level)
+    game.update_game_data(user_id, health, gold, json.dumps(inventory), location, adventure_level, adventure_xp, monsters_defeated, daily_progress_str)
     
     await ctx.send(f"✅ You bought {item_name} for {item['price']} gold!")
 
-@bot.command(name='inventory')
-async def inventory_command(ctx):
-    """Check your inventory"""
+@bot.command(name='use')
+async def use_item_command(ctx, *, item_name):
+    """Use an item from your inventory"""
     user_data = game.get_game_data(ctx.author.id)
+    user_id = user_data[0]
+    health = user_data[1]
+    gold = user_data[2]
     inventory_str = user_data[3]
+    location = user_data[4]
+    adventure_level = user_data[5] if len(user_data) > 5 else 1
+    adventure_xp = user_data[6] if len(user_data) > 6 else 0
+    monsters_defeated = user_data[7] if len(user_data) > 7 else 0
+    daily_progress_str = user_data[9] if len(user_data) > 9 else '{}'
+    
     inventory = json.loads(inventory_str)
     
-    if not inventory:
-        await ctx.send("🎒 Your inventory is empty.")
+    if item_name not in inventory or inventory[item_name] <= 0:
+        await ctx.send(f"❌ You don't have any {item_name} in your inventory.")
         return
     
-    embed = discord.Embed(title="🎒 Your Inventory", color=0x95a5a6)
-    for item, count in inventory.items():
-        embed.add_field(name=item, value=f"x{count}", inline=True)
+    if item_name not in game.items:
+        await ctx.send(f"❌ {item_name} cannot be used.")
+        return
+    
+    item = game.items[item_name]
+    result = ""
+    
+    if item['effect'] == 'heal':
+        old_health = health
+        health = min(100, health + item['value'])
+        healed = health - old_health
+        result = f"💚 You used {item_name} and restored {healed} health!"
+        
+    elif item['effect'] == 'magic':
+        # Magic scroll gives temporary XP boost
+        adventure_xp += item['value']
+        result = f"✨ You used {item_name} and gained {item['value']} adventure XP!"
+        
+    else:
+        await ctx.send(f"❌ {item_name} is passive equipment and doesn't need to be used manually.")
+        return
+    
+    # Remove item from inventory
+    inventory[item_name] -= 1
+    if inventory[item_name] <= 0:
+        del inventory[item_name]
+    
+    # Update game data
+    game.update_game_data(user_id, health, gold, json.dumps(inventory), location, adventure_level, adventure_xp, monsters_defeated, daily_progress_str)
+    
+    embed = discord.Embed(title="Item Used", description=result, color=0x00ff00)
+    embed.add_field(name="Health", value=f"❤️ {health}/100", inline=True)
+    embed.add_field(name="Adventure XP", value=f"⭐ {adventure_xp}", inline=True)
+    
+    await ctx.send(embed=embed)
+
+@bot.command(name='adventure_leaderboard')
+async def adventure_leaderboard_command(ctx, category='gold'):
+    """Show adventure leaderboards - categories: gold, level, monsters"""
+    if get_config('adventure_leaderboard_enabled') != 'True':
+        await ctx.send("Adventure leaderboards are currently disabled.")
+        return
+    
+    conn = sqlite3.connect('bot_data.db')
+    c = conn.cursor()
+    
+    if category == 'gold':
+        c.execute('SELECT user_id, gold FROM game_data ORDER BY gold DESC LIMIT 10')
+        title = "💰 Adventure Gold Leaderboard"
+        format_func = lambda x: f"{x:,} gold"
+    elif category == 'level':
+        c.execute('SELECT user_id, level, adventure_xp FROM game_data ORDER BY level DESC, adventure_xp DESC LIMIT 10')
+        title = "⭐ Adventure Level Leaderboard"
+        format_func = lambda x: f"Level {x[0]} ({x[1]} XP)" if isinstance(x, tuple) else f"Level {x}"
+    elif category == 'monsters':
+        c.execute('SELECT user_id, monsters_defeated FROM game_data ORDER BY monsters_defeated DESC LIMIT 10')
+        title = "⚔️ Monster Hunter Leaderboard"
+        format_func = lambda x: f"{x} monsters defeated"
+    else:
+        await ctx.send("❌ Invalid category. Use: gold, level, or monsters")
+        return
+    
+    results = c.fetchall()
+    conn.close()
+    
+    embed = discord.Embed(title=title, color=0xffd700)
+    
+    if not results:
+        embed.description = "No adventure data yet! Start playing with `!adventure`"
+    else:
+        for i, result in enumerate(results, 1):
+            user_id = result[0]
+            user = bot.get_user(user_id)
+            name = user.display_name if user else f"User {user_id}"
+            
+            if category == 'level':
+                value = format_func((result[1], result[2]))
+            else:
+                value = format_func(result[1])
+            
+            embed.add_field(name=f"{i}. {name}", value=value, inline=False)
+    
+    embed.set_footer(text="Use !adventure_leaderboard <gold/level/monsters> to see different rankings")
+    await ctx.send(embed=embed)
+
+@bot.command(name='daily_quest')
+async def daily_quest_command(ctx):
+    """Check your daily quest progress"""
+    if get_config('daily_quests_enabled') != 'True':
+        await ctx.send("Daily quests are currently disabled.")
+        return
+    
+    user_data = game.get_game_data(ctx.author.id)
+    daily_quest = game.get_daily_quest(ctx.author.id)
+    progress_data = game.update_quest_progress(ctx.author.id, 'check', 0)  # Just check
+    
+    quest_progress = progress_data.get(daily_quest['type'], 0)
+    completed = quest_progress >= daily_quest['target']
+    
+    embed = discord.Embed(
+        title="📋 Daily Quest", 
+        color=0x00ff00 if completed else 0x3498db
+    )
+    
+    embed.add_field(name="Quest", value=daily_quest['name'], inline=True)
+    embed.add_field(name="Description", value=daily_quest['description'], inline=True)
+    embed.add_field(name="Reward", value=f"{daily_quest['reward']} gold", inline=True)
+    
+    status = "✅ COMPLETED!" if completed else f"{quest_progress}/{daily_quest['target']}"
+    embed.add_field(name="Progress", value=status, inline=False)
+    
+    if completed:
+        embed.add_field(name="💰 Claim Reward", value="Use `!claim_quest` to get your reward!", inline=False)
+    
+    await ctx.send(embed=embed)
+
+@bot.command(name='claim_quest')
+async def claim_quest_command(ctx):
+    """Claim your completed daily quest reward"""
+    if get_config('daily_quests_enabled') != 'True':
+        await ctx.send("Daily quests are currently disabled.")
+        return
+    
+    user_data = game.get_game_data(ctx.author.id)
+    daily_quest = game.get_daily_quest(ctx.author.id)
+    progress_data = game.update_quest_progress(ctx.author.id, 'check', 0)
+    
+    quest_progress = progress_data.get(daily_quest['type'], 0)
+    
+    if quest_progress < daily_quest['target']:
+        await ctx.send(f"❌ Quest not completed yet! Progress: {quest_progress}/{daily_quest['target']}")
+        return
+    
+    # Check if already claimed today
+    claimed_key = f"claimed_{daily_quest['type']}"
+    if progress_data.get(claimed_key, False):
+        await ctx.send("❌ You already claimed today's quest reward!")
+        return
+    
+    # Award the reward
+    user_id = user_data[0]
+    health = user_data[1]
+    gold = user_data[2] + daily_quest['reward']
+    inventory_str = user_data[3]
+    location = user_data[4]
+    adventure_level = user_data[5] if len(user_data) > 5 else 1
+    adventure_xp = user_data[6] if len(user_data) > 6 else 0
+    monsters_defeated = user_data[7] if len(user_data) > 7 else 0
+    
+    # Mark as claimed
+    progress_data[claimed_key] = True
+    game.update_quest_progress(ctx.author.id, claimed_key, 0)  # Update the claimed status
+    
+    game.update_game_data(user_id, health, gold, inventory_str, location, adventure_level, adventure_xp, monsters_defeated, json.dumps(progress_data))
+    
+    embed = discord.Embed(title="🎉 Quest Completed!", color=0x00ff00)
+    embed.add_field(name="Quest", value=daily_quest['name'], inline=True)
+    embed.add_field(name="Reward Claimed", value=f"💰 {daily_quest['reward']} gold", inline=True)
+    embed.add_field(name="New Gold Total", value=f"💰 {gold}", inline=True)
     
     await ctx.send(embed=embed)
 
@@ -464,15 +833,27 @@ async def help_custom(ctx):
                    inline=False)
     
     embed.add_field(name="🎮 Adventure Game", 
-                   value="`!adventure` - Start/continue adventure\n`!action <action>` - Perform action\n`!inventory` - Check inventory\n`!buy <item>` - Buy from shop", 
+                   value="`!adventure` - Start/continue adventure\n`!action <action>` - Perform action\n`!inventory` - Check inventory\n`!buy <item>` - Buy from shop\n`!use <item>` - Use consumable items", 
+                   inline=False)
+                   
+    embed.add_field(name="🏆 Adventure Rankings", 
+                   value="`!adventure_leaderboard gold` - Top gold collectors\n`!adventure_leaderboard level` - Highest adventure levels\n`!adventure_leaderboard monsters` - Monster hunters", 
+                   inline=False)
+    
+    embed.add_field(name="📋 Daily Quests", 
+                   value="`!daily_quest` - Check today's quest\n`!claim_quest` - Claim completed quest reward", 
                    inline=False)
     
     embed.add_field(name="⚙️ Admin Commands", 
                    value="`!config list` - View all settings\n`!config set <key> <value>` - Change setting\n`!config get <key>` - Get setting value", 
                    inline=False)
     
-    embed.add_field(name="📋 Configurable Settings", 
-                   value="• `xp_per_message` - XP gained per message\n• `xp_cooldown` - Cooldown between XP gains (seconds)\n• `level_multiplier` - XP needed per level\n• `game_enabled` - Enable/disable adventure game\n• `welcome_message` - Message for new members\n• `level_up_message` - Level up notification", 
+    embed.add_field(name="🎯 New Features", 
+                   value="• **Rare Events** - 5% chance for epic discoveries!\n• **Boss Battles** - 3% chance to fight legendary monsters\n• **Functional Items** - Potions heal, weapons boost damage\n• **Adventure Leveling** - Separate progression system\n• **Daily Quests** - New challenges every day", 
+                   inline=False)
+    
+    embed.add_field(name="📋 Key Settings (Admins)", 
+                   value="• `rare_event_chance` - Rare discovery chance (%)\n• `boss_encounter_chance` - Boss battle chance (%)\n• `daily_quests_enabled` - Enable daily quests\n• `adventure_leaderboard_enabled` - Show rankings\n• Standard XP settings still available", 
                    inline=False)
     
     await ctx.send(embed=embed)

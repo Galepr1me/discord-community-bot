@@ -6,6 +6,8 @@ import asyncio
 import json
 import os
 from datetime import datetime, timedelta
+from flask import Flask
+import threading
 
 # Bot setup
 intents = discord.Intents.default()
@@ -90,9 +92,10 @@ def update_user_xp(user_id, xp_gain):
     level_multiplier = int(get_config('level_multiplier'))
     new_level = int(new_xp // level_multiplier) + 1
     
+    now_str = datetime.now().isoformat()
     c.execute('''UPDATE users SET xp = ?, level = ?, last_message = ?, total_messages = ?
                  WHERE user_id = ?''', 
-              (new_xp, new_level, datetime.now(), total_messages + 1, user_id))
+              (new_xp, new_level, now_str, total_messages + 1, user_id))
     conn.commit()
     conn.close()
     
@@ -110,10 +113,14 @@ async def on_message(message):
     cooldown = int(get_config('xp_cooldown'))
     
     if last_message:
-        last_time = datetime.fromisoformat(last_message)
-        if datetime.now() - last_time < timedelta(seconds=cooldown):
-            await bot.process_commands(message)
-            return
+        try:
+            last_time = datetime.fromisoformat(last_message)
+            if datetime.now() - last_time < timedelta(seconds=cooldown):
+                await bot.process_commands(message)
+                return
+        except (ValueError, TypeError):
+            # Handle old datetime format or invalid data
+            pass
     
     # Award XP
     xp_gain = int(get_config('xp_per_message'))
@@ -470,9 +477,37 @@ async def help_custom(ctx):
     
     await ctx.send(embed=embed)
 
+# Flask web server to keep Render happy
+app = Flask(__name__)
+
+@app.route('/')
+def home():
+    return "Discord Bot is running! 🤖"
+
+@app.route('/health')
+def health():
+    return {"status": "healthy", "bot": "online"}
+
+def run_flask():
+    port = int(os.environ.get('PORT', 10000))
+    app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False)
+
 if __name__ == '__main__':
     token = os.getenv('DISCORD_TOKEN')
     if not token:
         print("Please set the DISCORD_TOKEN environment variable")
     else:
-        bot.run(token)
+        # Start Flask server in a separate thread
+        flask_thread = threading.Thread(target=run_flask)
+        flask_thread.daemon = True
+        flask_thread.start()
+        
+        print("Flask server started")
+        print("Starting Discord bot...")
+        
+        try:
+            bot.run(token)
+        except Exception as e:
+            print(f"Bot error: {e}")
+            # Keep Flask running even if bot fails
+            flask_thread.join()

@@ -9,10 +9,10 @@ from datetime import datetime, timedelta
 from flask import Flask
 import threading
 
-# Bot setup
+# Bot setup - Remove default help command
 intents = discord.Intents.default()
 intents.message_content = True
-bot = commands.Bot(command_prefix='!', intents=intents)
+bot = commands.Bot(command_prefix='!', intents=intents, help_command=None)
 
 # Database setup
 def init_db():
@@ -981,6 +981,11 @@ async def stats_command(ctx):
     await ctx.send(embed=embed)
 
 # Help command with rich embed design
+@bot.command(name='help')
+async def help_command(ctx):
+    """Show all available commands"""
+    await help_custom(ctx)
+
 @bot.command(name='help_custom')
 async def help_custom(ctx):
     """Show all available commands"""
@@ -992,78 +997,83 @@ async def help_custom(ctx):
         color=0x00d4ff
     )
     
-    embed.set_thumbnail(url="https://i.imgur.com/placeholder.png")  # You can replace with your bot's avatar
-    
     # XP System Section
-    xp_commands = (
-        "🔸 `!level` - View your XP and level\n"
-        "🔸 `!level @user` - Check someone else's level\n" 
-        "🔸 `!leaderboard` - See top XP earners\n"
-        "💬 *Gain XP automatically by chatting!*"
-    )
     embed.add_field(
-        name="📊 XP & Leveling System", 
-        value=xp_commands, 
-        inline=False
+        name="📊 Chat Activity", 
+        value=(
+            "🔹 `!level` - View your XP and level\n"
+            "🔹 `!level @user` - Check someone else's level\n" 
+            "🔹 `!leaderboard` - See top XP earners\n"
+            "🔹 `!stats` - Server bot statistics\n"
+            "💬 *Gain XP automatically by chatting!*"
+        ), 
+        inline=True
     )
     
     # Adventure Game Section  
-    adventure_commands = (
-        "🔸 `!adventure` - Start your journey\n"
-        "🔸 `!action <explore/hunt/mine>` - Take actions\n"
-        "🔸 `!inventory` - Check your items\n"
-        "🔸 `!use <item>` - Use potions & scrolls\n"
-        "🔸 `!buy <item>` - Shop in town\n"
-        "⚡ *Rare events, boss battles & more!*"
-    )
     embed.add_field(
         name="🎮 Adventure RPG", 
-        value=adventure_commands, 
-        inline=False
+        value=(
+            "🔹 `!adventure` - Start your journey\n"
+            "🔹 `!action <explore/hunt/mine>` - Take actions\n"
+            "🔹 `!inventory` - Check your items\n"
+            "🔹 `!use <item>` - Use potions & scrolls\n"
+            "🔹 `!buy <item>` - Shop in town\n"
+            "⚡ *Rare events, boss battles & more!*"
+        ), 
+        inline=True
     )
     
     # Competition Section
-    competition_commands = (
-        "🔸 `!adventure_leaderboard gold` - Top collectors 💰\n"
-        "🔸 `!adventure_leaderboard level` - Highest adventurers ⭐\n"
-        "🔸 `!adventure_leaderboard monsters` - Monster hunters ⚔️\n"
-        "🏆 *Compete for glory and bragging rights!*"
-    )
     embed.add_field(
         name="🏆 Leaderboards & Rankings", 
-        value=competition_commands, 
-        inline=False
+        value=(
+            "🔹 `!adventure_leaderboard gold` - Top collectors 💰\n"
+            "🔹 `!adventure_leaderboard level` - Highest adventurers ⭐\n"
+            "🔹 `!adventure_leaderboard monsters` - Monster hunters ⚔️\n"
+            "🏆 *Compete for glory and bragging rights!*"
+        ), 
+        inline=True
     )
     
     # Daily Quests Section
-    quest_commands = (
-        "🔸 `!daily_quest` - Check today's challenge\n"
-        "🔸 `!claim_quest` - Collect your rewards\n"
-        "📋 *New quest every day with bonus gold!*"
-    )
     embed.add_field(
         name="📋 Daily Quest System", 
-        value=quest_commands, 
-        inline=False
+        value=(
+            "🔹 `!daily_quest` - Check today's challenge\n"
+            "🔹 `!claim_quest` - Collect your rewards\n"
+            "📋 *New quest every day with bonus gold!*"
+        ), 
+        inline=True
     )
     
     # Quick Start Guide
-    quick_start = (
-        "1️⃣ Chat normally to gain XP\n"
-        "2️⃣ Use `!adventure` to start the game\n"
-        "3️⃣ Try `!action explore` for your first adventure\n"
-        "4️⃣ Check `!daily_quest` for bonus objectives"
-    )
     embed.add_field(
         name="🚀 Quick Start Guide", 
-        value=quick_start, 
-        inline=False
+        value=(
+            "1️⃣ Chat normally to gain XP\n"
+            "2️⃣ Use `!adventure` to start the game\n"
+            "3️⃣ Try `!action explore` for your first adventure\n"
+            "4️⃣ Check `!daily_quest` for bonus objectives"
+        ), 
+        inline=True
+    )
+    
+    # Game Locations
+    embed.add_field(
+        name="🗺️ Adventure Locations", 
+        value=(
+            "🏘️ **Town** - Shop, rest, safe exploration\n"
+            "🌲 **Forest** - Hunt monsters, boss battles\n"
+            "🕳️ **Cave** - Mine gold, dangerous creatures\n"
+            "🎲 *Watch for rare events and legendary finds!*"
+        ), 
+        inline=True
     )
     
     # Footer with additional info
     embed.set_footer(
-        text="💡 Tip: Start in Town, then explore Forest and Cave! • 🎲 Watch for rare events!",
-        icon_url="https://i.imgur.com/info_icon.png"  # Optional info icon
+        text="💡 Tip: Start in Town, then explore Forest and Cave! • 🎲 5% chance for rare events!",
     )
     
     await ctx.send(embed=embed)
@@ -1076,28 +1086,26 @@ async def help_custom(ctx):
             color=0xff6b35
         )
         
-        config_commands = (
-            "🔸 `!config list` - View all settings\n"
-            "🔸 `!config get <key>` - Check specific setting\n"
-            "🔸 `!config set <key> <value>` - Change setting\n"
-        )
         admin_embed.add_field(
             name="🛠️ Configuration", 
-            value=config_commands, 
-            inline=False
+            value=(
+                "🔹 `!config list` - View all settings\n"
+                "🔹 `!config get <key>` - Check specific setting\n"
+                "🔹 `!config set <key> <value>` - Change setting\n"
+            ), 
+            inline=True
         )
         
-        key_settings = (
-            "• `xp_per_message` - XP gained per message\n"
-            "• `rare_event_chance` - Rare discovery rate (%)\n"
-            "• `boss_encounter_chance` - Boss battle rate (%)\n"
-            "• `daily_quests_enabled` - Enable daily quests\n"
-            "• `game_enabled` - Enable/disable adventure game"
-        )
         admin_embed.add_field(
             name="🔧 Key Settings", 
-            value=key_settings, 
-            inline=False
+            value=(
+                "🔹 `xp_per_message` - XP per message\n"
+                "🔹 `rare_event_chance` - Rare discovery rate (%)\n"
+                "🔹 `boss_encounter_chance` - Boss battle rate (%)\n"
+                "🔹 `daily_quests_enabled` - Enable daily quests\n"
+                "🔹 `game_enabled` - Enable/disable adventure"
+            ), 
+            inline=True
         )
         
         admin_embed.set_footer(text="🔐 Admin-only commands • Use !config list to see all options")

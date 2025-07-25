@@ -25,11 +25,30 @@ def get_db_connection():
         # Use external PostgreSQL (Supabase, etc.)
         try:
             import psycopg2
-            print(f"🗄️ Connecting to PostgreSQL database")
-            return psycopg2.connect(database_url)
+            print(f"🗄️ Attempting to connect to PostgreSQL database...")
+            
+            # Add connection timeout and better error handling
+            conn = psycopg2.connect(
+                database_url,
+                connect_timeout=10,
+                sslmode='require'
+            )
+            print(f"✅ Successfully connected to PostgreSQL database")
+            return conn
+            
         except ImportError:
             print("❌ psycopg2 not installed. Install with: pip install psycopg2-binary")
-            raise
+            print("🔄 Falling back to SQLite...")
+            db_path = get_db_path()
+            print(f"🗄️ Using SQLite database at: {db_path}")
+            return sqlite3.connect(db_path)
+            
+        except Exception as e:
+            print(f"❌ PostgreSQL connection failed: {e}")
+            print("🔄 Falling back to SQLite...")
+            db_path = get_db_path()
+            print(f"🗄️ Using SQLite database at: {db_path}")
+            return sqlite3.connect(db_path)
     else:
         # Use SQLite for local development
         db_path = get_db_path()
@@ -329,13 +348,140 @@ async def on_message(message):
     await bot.process_commands(message)
 
 # Admin Configuration Commands
+@bot.command(name='status')
+@commands.has_permissions(administrator=True)
+async def status_command(ctx):
+    """Show bot and database status (Admin only)"""
+    import psutil
+    import platform
+    from datetime import datetime
+    
+    # Get bot uptime
+    uptime = datetime.now() - datetime.fromtimestamp(psutil.Process().create_time())
+    
+    # Test database connection
+    database_url = os.getenv('DATABASE_URL')
+    db_status = "❌ Unknown"
+    db_type = "Unknown"
+    db_details = "No connection info"
+    
+    try:
+        conn = get_db_connection()
+        
+        if database_url and database_url.startswith('postgresql://'):
+            # Test PostgreSQL connection
+            try:
+                import psycopg2
+                test_conn = psycopg2.connect(
+                    database_url,
+                    connect_timeout=5,
+                    sslmode='require'
+                )
+                test_conn.close()
+                db_status = "✅ Connected"
+                db_type = "PostgreSQL (Supabase)"
+                # Extract host from URL for display
+                host_start = database_url.find('@') + 1
+                host_end = database_url.find(':', host_start)
+                host = database_url[host_start:host_end] if host_end > host_start else "Unknown"
+                db_details = f"Host: {host}\nSSL: Required"
+            except Exception as e:
+                db_status = f"❌ PostgreSQL Failed: {str(e)[:50]}..."
+                db_type = "PostgreSQL (Failed - Using SQLite)"
+                db_details = "Fallback to local SQLite"
+        else:
+            db_status = "✅ Connected"
+            db_type = "SQLite (Local)"
+            db_path = get_db_path()
+            db_details = f"Path: {db_path}"
+        
+        # Test basic database operations
+        c = conn.cursor()
+        c.execute('SELECT COUNT(*) FROM users')
+        user_count = c.fetchone()[0]
+        c.execute('SELECT COUNT(*) FROM config')
+        config_count = c.fetchone()[0]
+        conn.close()
+        
+    except Exception as e:
+        db_status = f"❌ Database Error: {str(e)[:50]}..."
+        user_count = "Unknown"
+        config_count = "Unknown"
+    
+    # Create status embed
+    embed = discord.Embed(
+        title="🤖 Bot Status Dashboard", 
+        description="Complete system health check",
+        color=0x00ff00 if "✅" in db_status else 0xff0000
+    )
+    
+    # Bot Information
+    bot_info = (
+        f"🤖 **Bot User**: {bot.user.name}#{bot.user.discriminator}\n"
+        f"🆔 **Bot ID**: {bot.user.id}\n"
+        f"⏱️ **Uptime**: {str(uptime).split('.')[0]}\n"
+        f"🌐 **Servers**: {len(bot.guilds)}\n"
+        f"👥 **Cached Users**: {len(bot.users)}"
+    )
+    embed.add_field(name="📊 Bot Information", value=bot_info, inline=True)
+    
+    # Database Status
+    db_info = (
+        f"🗄️ **Type**: {db_type}\n"
+        f"🔗 **Status**: {db_status}\n"
+        f"📝 **Details**: {db_details}\n"
+        f"👤 **Users**: {user_count}\n"
+        f"⚙️ **Config Items**: {config_count}"
+    )
+    embed.add_field(name="🗄️ Database Status", value=db_info, inline=True)
+    
+    # System Information
+    try:
+        memory = psutil.virtual_memory()
+        cpu_percent = psutil.cpu_percent(interval=1)
+        system_info = (
+            f"💻 **Platform**: {platform.system()} {platform.release()}\n"
+            f"🧠 **CPU Usage**: {cpu_percent}%\n"
+            f"💾 **Memory**: {memory.percent}% used\n"
+            f"🐍 **Python**: {platform.python_version()}\n"
+            f"📦 **Discord.py**: {discord.__version__}"
+        )
+    except:
+        system_info = "❌ System info unavailable"
+    
+    embed.add_field(name="💻 System Information", value=system_info, inline=False)
+    
+    # Environment Variables Check
+    env_status = []
+    required_vars = ['DISCORD_TOKEN', 'DATABASE_URL']
+    for var in required_vars:
+        value = os.getenv(var)
+        if var == 'DISCORD_TOKEN':
+            status = "✅ Set" if value else "❌ Missing"
+        elif var == 'DATABASE_URL':
+            if value and value.startswith('postgresql://'):
+                status = "✅ PostgreSQL URL"
+            elif value:
+                status = "⚠️ Invalid format"
+            else:
+                status = "❌ Not set (using SQLite)"
+        env_status.append(f"**{var}**: {status}")
+    
+    embed.add_field(name="🔐 Environment Variables", value="\n".join(env_status), inline=False)
+    
+    # Add timestamp
+    embed.timestamp = datetime.now()
+    embed.set_footer(text="Status checked at")
+    
+    await ctx.send(embed=embed)
+
 @bot.command(name='config')
 @commands.has_permissions(administrator=True)
 async def config_command(ctx, action=None, key=None, *, value=None):
     """Configure bot settings. Usage: !config [set/get/list] [key] [value]"""
     
     if action == 'list':
-        conn = sqlite3.connect('bot_data.db')
+        conn = get_db_connection()
         c = conn.cursor()
         c.execute('SELECT key, value FROM config')
         configs = c.fetchall()

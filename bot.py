@@ -89,7 +89,8 @@ def init_db():
     default_config = {
         'xp_per_message': '15',
         'xp_cooldown': '60',
-        'level_multiplier': '100',
+        'level_multiplier': '100',  # Base XP for first level up
+        'level_scaling_factor': '1.2',  # How much harder each level gets (1.2 = 20% increase)
         'xp_channel': 'None',
         'game_enabled': 'True',
         'welcome_message': 'Welcome to the server, {user}!',
@@ -201,6 +202,46 @@ async def get_user_display_name_async(ctx, user_id):
     conn.close()
     return result
 
+def calculate_level_from_xp(total_xp):
+    """Calculate level based on progressive XP requirements"""
+    base_xp = int(get_config('level_multiplier'))  # Base XP for level 1->2
+    scaling_factor = float(get_config('level_scaling_factor') or '1.2')
+    level = 1
+    xp_needed = 0
+    
+    while total_xp >= xp_needed:
+        # Each level requires more XP: base_xp * level * scaling_factor^(level-1)
+        level_xp_requirement = int(base_xp * level * (scaling_factor ** (level - 1)))
+        xp_needed += level_xp_requirement
+        
+        if total_xp >= xp_needed:
+            level += 1
+        else:
+            break
+    
+    return level
+
+def calculate_xp_for_level(target_level):
+    """Calculate total XP needed to reach a specific level"""
+    if target_level <= 1:
+        return 0
+    
+    base_xp = int(get_config('level_multiplier'))
+    scaling_factor = float(get_config('level_scaling_factor') or '1.2')
+    total_xp = 0
+    
+    for level in range(1, target_level):
+        level_xp_requirement = int(base_xp * level * (scaling_factor ** (level - 1)))
+        total_xp += level_xp_requirement
+    
+    return total_xp
+
+def calculate_xp_for_next_level(current_level):
+    """Calculate XP needed for the next level"""
+    base_xp = int(get_config('level_multiplier'))
+    scaling_factor = float(get_config('level_scaling_factor') or '1.2')
+    return int(base_xp * current_level * (scaling_factor ** (current_level - 1)))
+
 def update_user_xp(user_id, xp_gain, username=None, display_name=None):
     conn = sqlite3.connect('bot_data.db')
     c = conn.cursor()
@@ -211,8 +252,7 @@ def update_user_xp(user_id, xp_gain, username=None, display_name=None):
     total_messages = user_data[4]
     
     new_xp = current_xp + xp_gain
-    level_multiplier = int(get_config('level_multiplier'))
-    new_level = int(new_xp // level_multiplier) + 1
+    new_level = calculate_level_from_xp(new_xp)
     
     now_str = datetime.now().isoformat()
     
@@ -303,17 +343,66 @@ async def level_command(ctx, user: discord.Member = None):
     target = user or ctx.author
     user_data = get_user_data(target.id)
     
+    current_level = user_data[2]
+    current_xp = user_data[1]
+    
     embed = discord.Embed(title=f"{target.display_name}'s Level", color=0x3498db)
-    embed.add_field(name="Level", value=user_data[2], inline=True)
-    embed.add_field(name="XP", value=user_data[1], inline=True)
+    embed.add_field(name="Level", value=current_level, inline=True)
+    embed.add_field(name="Total XP", value=f"{current_xp:,}", inline=True)
     embed.add_field(name="Messages", value=user_data[4], inline=True)
     
-    level_multiplier = int(get_config('level_multiplier'))
-    next_level_xp = user_data[2] * level_multiplier
-    progress = user_data[1] - ((user_data[2] - 1) * level_multiplier)
+    # Calculate progress to next level
+    current_level_xp = calculate_xp_for_level(current_level)
+    next_level_xp = calculate_xp_for_level(current_level + 1)
+    xp_needed_for_next = calculate_xp_for_next_level(current_level)
+    progress = current_xp - current_level_xp
     
     embed.add_field(name="Progress to Next Level", 
-                   value=f"{progress}/{level_multiplier}", inline=False)
+                   value=f"{progress:,}/{xp_needed_for_next:,} XP", inline=False)
+    
+    # Add a progress bar
+    progress_percentage = min(100, (progress / xp_needed_for_next) * 100)
+    progress_bar = "█" * int(progress_percentage // 10) + "░" * (10 - int(progress_percentage // 10))
+    embed.add_field(name="Progress Bar", 
+                   value=f"`{progress_bar}` {progress_percentage:.1f}%", inline=False)
+    
+    await ctx.send(embed=embed)
+
+@bot.command(name='xp_table')
+async def xp_table_command(ctx, max_level: int = 10):
+    """Show XP requirements for different levels"""
+    if max_level > 25:
+        max_level = 25  # Prevent spam
+    
+    embed = discord.Embed(title="📊 XP Level Requirements", color=0x00ff00)
+    
+    table_text = "```\nLevel | XP for Level | Total XP\n"
+    table_text += "------|-------------|----------\n"
+    
+    for level in range(1, max_level + 1):
+        if level == 1:
+            xp_for_level = 0
+            total_xp = 0
+        else:
+            xp_for_level = calculate_xp_for_next_level(level - 1)
+            total_xp = calculate_xp_for_level(level)
+        
+        table_text += f"{level:5} | {xp_for_level:11,} | {total_xp:9,}\n"
+    
+    table_text += "```"
+    
+    embed.description = table_text
+    
+    base_xp = int(get_config('level_multiplier'))
+    scaling_factor = float(get_config('level_scaling_factor') or '1.2')
+    
+    embed.add_field(
+        name="📈 Scaling Info", 
+        value=f"Base XP: {base_xp}\nScaling Factor: {scaling_factor}x per level", 
+        inline=True
+    )
+    
+    embed.set_footer(text="Use !xp_table <number> to see more levels (max 25)")
     
     await ctx.send(embed=embed)
 
@@ -1121,8 +1210,9 @@ async def help_custom(ctx):
             "🔹 `!level` - View your XP and level\n"
             "🔹 `!level @user` - Check someone else's level\n" 
             "🔹 `!leaderboard` - See top XP earners\n"
+            "🔹 `!xp_table` - View XP requirements per level\n"
             "🔹 `!stats` - Server bot statistics\n"
-            "💬 *Gain XP automatically by chatting!*"
+            " *Gain XP automatically by chatting!*"
         ), 
         inline=True
     )
@@ -1217,6 +1307,8 @@ async def help_custom(ctx):
             name="🔧 Key Settings", 
             value=(
                 "🔹 `xp_per_message` - XP per message\n"
+                "🔹 `level_multiplier` - Base XP for leveling\n"
+                "🔹 `level_scaling_factor` - Level difficulty scaling\n"
                 "🔹 `rare_event_chance` - Rare discovery rate (%)\n"
                 "🔹 `boss_encounter_chance` - Boss battle rate (%)\n"
                 "🔹 `daily_quests_enabled` - Enable daily quests\n"

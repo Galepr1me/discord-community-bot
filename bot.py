@@ -1355,3 +1355,34 @@ async def help_custom(ctx):
 # Flask web server to keep Render happy
 app = Flask(__name__)
 
+@app.route('/')
+def home():
+    return "Discord Bot is running! 🤖"
+
+@app.route('/health')
+def health():
+    return {"status": "healthy", "bot": "online"}
+
+def run_flask():
+    port = int(os.environ.get('PORT', 10000))
+    app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False)
+
+if __name__ == '__main__':
+    token = os.getenv('DISCORD_TOKEN')
+    if not token:
+        print("Please set the DISCORD_TOKEN environment variable")
+    else:
+        # Start Flask server in a separate thread
+        flask_thread = threading.Thread(target=run_flask)
+        flask_thread.daemon = True
+        flask_thread.start()
+        
+        print("Flask server started")
+        print("Starting Discord bot...")
+        
+        try:
+            bot.run(token)
+        except Exception as e:
+            print(f"Bot error: {e}")
+            # Keep Flask running even if bot fails
+            flask_thread.join()

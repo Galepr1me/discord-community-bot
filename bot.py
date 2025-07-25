@@ -17,8 +17,39 @@ intents.message_content = True
 bot = commands.Bot(command_prefix='!', intents=intents, help_command=None)
 
 # Database setup
+def get_db_connection():
+    """Get database connection - PostgreSQL for cloud with DATABASE_URL, SQLite otherwise"""
+    database_url = os.getenv('DATABASE_URL')
+    
+    if database_url and database_url.startswith('postgresql://'):
+        # Use external PostgreSQL (Supabase, etc.)
+        try:
+            import psycopg2
+            print(f"🗄️ Connecting to PostgreSQL database")
+            return psycopg2.connect(database_url)
+        except ImportError:
+            print("❌ psycopg2 not installed. Install with: pip install psycopg2-binary")
+            raise
+    else:
+        # Use SQLite for local development
+        db_path = get_db_path()
+        print(f"🗄️ Using SQLite database at: {db_path}")
+        return sqlite3.connect(db_path)
+
+def get_db_path():
+    """Get the appropriate SQLite database path for the environment"""
+    # Check if we're in a cloud environment
+    if os.getenv('RENDER') or os.getenv('RAILWAY_ENVIRONMENT') or os.getenv('PORT'):
+        # Use /tmp for cloud hosting (ephemeral but works)
+        return '/tmp/bot_data.db'
+    else:
+        # Use local file for development
+        return 'bot_data.db'
+
 def init_db():
-    conn = sqlite3.connect('bot_data.db')
+    conn = get_db_connection()
+    database_url = os.getenv('DATABASE_URL')
+    is_postgres = database_url and database_url.startswith('postgresql://')
     c = conn.cursor()
     
     # XP and levels table with username cache
@@ -110,7 +141,7 @@ def init_db():
 
 # Utility functions
 def get_config(key):
-    conn = sqlite3.connect('bot_data.db')
+    conn = get_db_connection()
     c = conn.cursor()
     c.execute('SELECT value FROM config WHERE key = ?', (key,))
     result = c.fetchone()
@@ -118,7 +149,7 @@ def get_config(key):
     return result[0] if result else None
 
 def set_config(key, value):
-    conn = sqlite3.connect('bot_data.db')
+    conn = sqlite3.connect(get_db_path())
     c = conn.cursor()
     c.execute('INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)', (key, value))
     conn.commit()
@@ -1324,34 +1355,3 @@ async def help_custom(ctx):
 # Flask web server to keep Render happy
 app = Flask(__name__)
 
-@app.route('/')
-def home():
-    return "Discord Bot is running! 🤖"
-
-@app.route('/health')
-def health():
-    return {"status": "healthy", "bot": "online"}
-
-def run_flask():
-    port = int(os.environ.get('PORT', 10000))
-    app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False)
-
-if __name__ == '__main__':
-    token = os.getenv('DISCORD_TOKEN')
-    if not token:
-        print("Please set the DISCORD_TOKEN environment variable")
-    else:
-        # Start Flask server in a separate thread
-        flask_thread = threading.Thread(target=run_flask)
-        flask_thread.daemon = True
-        flask_thread.start()
-        
-        print("Flask server started")
-        print("Starting Discord bot...")
-        
-        try:
-            bot.run(token)
-        except Exception as e:
-            print(f"Bot error: {e}")
-            # Keep Flask running even if bot fails
-            flask_thread.join()

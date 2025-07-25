@@ -1289,7 +1289,7 @@ async def on_command_error(ctx, error):
 @commands.cooldown(1, 60, commands.BucketType.guild)
 async def stats_command(ctx):
     """Show server bot statistics"""
-    conn = sqlite3.connect('bot_data.db')
+    conn = get_db_connection()
     c = conn.cursor()
     
     # Get XP stats

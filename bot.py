@@ -149,14 +149,14 @@ def get_config(key):
     return result[0] if result else None
 
 def set_config(key, value):
-    conn = sqlite3.connect(get_db_path())
+    conn = get_db_connection()
     c = conn.cursor()
     c.execute('INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)', (key, value))
     conn.commit()
     conn.close()
 
 def get_user_data(user_id):
-    conn = sqlite3.connect('bot_data.db')
+    conn = get_db_connection()
     c = conn.cursor()
     c.execute('SELECT * FROM users WHERE user_id = ?', (user_id,))
     result = c.fetchone()
@@ -187,7 +187,7 @@ def get_user_display_name(ctx, user_id):
     
     # Method 3: Get cached name from database
     try:
-        conn = sqlite3.connect('bot_data.db')
+        conn = get_db_connection()
         c = conn.cursor()
         c.execute('SELECT display_name, username FROM users WHERE user_id = ?', (user_id,))
         result = c.fetchone()
@@ -222,16 +222,6 @@ async def get_user_display_name_async(ctx, user_id):
     
     # Fallback to the sync result
     return name
-    conn = sqlite3.connect('bot_data.db')
-    c = conn.cursor()
-    c.execute('SELECT * FROM users WHERE user_id = ?', (user_id,))
-    result = c.fetchone()
-    if not result:
-        c.execute('INSERT INTO users (user_id) VALUES (?)', (user_id,))
-        conn.commit()
-        result = (user_id, 0, 1, None, 0)
-    conn.close()
-    return result
 
 def calculate_level_from_xp(total_xp):
     """Calculate level based on progressive XP requirements"""
@@ -274,7 +264,7 @@ def calculate_xp_for_next_level(current_level):
     return int(base_xp * current_level * (scaling_factor ** (current_level - 1)))
 
 def update_user_xp(user_id, xp_gain, username=None, display_name=None):
-    conn = sqlite3.connect('bot_data.db')
+    conn = get_db_connection()
     c = conn.cursor()
     
     user_data = get_user_data(user_id)

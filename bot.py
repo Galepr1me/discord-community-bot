@@ -104,95 +104,142 @@ def get_db_path():
         return 'bot_data.db'
 
 def init_db():
+    global _current_db_type
     conn = get_db_connection()
     c = conn.cursor()
     
-    # XP and levels table with username cache
-    c.execute('''CREATE TABLE IF NOT EXISTS users
-                 (user_id INTEGER PRIMARY KEY, xp INTEGER DEFAULT 0, level INTEGER DEFAULT 1, 
-                  last_message TIMESTAMP, total_messages INTEGER DEFAULT 0, 
-                  username TEXT, display_name TEXT)''')
-    
-    # Bot configuration table
-    c.execute('''CREATE TABLE IF NOT EXISTS config
-                 (key TEXT PRIMARY KEY, value TEXT)''')
-    
-    # Game data table with proper schema migration
-    c.execute('''CREATE TABLE IF NOT EXISTS game_data
-                 (user_id INTEGER PRIMARY KEY, health INTEGER DEFAULT 100, 
-                  gold INTEGER DEFAULT 0, inventory TEXT DEFAULT '{}', 
-                  location TEXT DEFAULT 'town', level INTEGER DEFAULT 1,
-                  adventure_xp INTEGER DEFAULT 0, monsters_defeated INTEGER DEFAULT 0,
-                  last_daily_quest DATE, daily_quest_progress TEXT DEFAULT '{}')''')
-    
-    # Database version tracking for migrations
-    c.execute('''CREATE TABLE IF NOT EXISTS db_version
-                 (version INTEGER PRIMARY KEY)''')
-    
-    # Check current database version
-    c.execute('SELECT version FROM db_version ORDER BY version DESC LIMIT 1')
-    current_version = c.fetchone()
-    current_version = current_version[0] if current_version else 0
-    
-    # Perform migrations if needed
-    if current_version < 1:
-        # Migration 1: Add new columns to game_data if they don't exist
-        try:
-            c.execute('ALTER TABLE game_data ADD COLUMN adventure_xp INTEGER DEFAULT 0')
-        except sqlite3.OperationalError:
-            pass  # Column already exists
-        try:
-            c.execute('ALTER TABLE game_data ADD COLUMN monsters_defeated INTEGER DEFAULT 0')
-        except sqlite3.OperationalError:
-            pass
-        try:
-            c.execute('ALTER TABLE game_data ADD COLUMN last_daily_quest DATE')
-        except sqlite3.OperationalError:
-            pass
-        try:
-            c.execute('ALTER TABLE game_data ADD COLUMN daily_quest_progress TEXT DEFAULT "{}"')
-        except sqlite3.OperationalError:
-            pass
+    try:
+        # Handle PostgreSQL vs SQLite differences
+        if _current_db_type == 'postgresql':
+            # PostgreSQL syntax
+            c.execute('''CREATE TABLE IF NOT EXISTS users
+                         (user_id BIGINT PRIMARY KEY, xp INTEGER DEFAULT 0, level INTEGER DEFAULT 1, 
+                          last_message TIMESTAMP, total_messages INTEGER DEFAULT 0, 
+                          username TEXT, display_name TEXT)''')
+            
+            c.execute('''CREATE TABLE IF NOT EXISTS config
+                         (key TEXT PRIMARY KEY, value TEXT)''')
+            
+            c.execute('''CREATE TABLE IF NOT EXISTS game_data
+                         (user_id BIGINT PRIMARY KEY, health INTEGER DEFAULT 100, 
+                          gold INTEGER DEFAULT 0, inventory TEXT DEFAULT '{}', 
+                          location TEXT DEFAULT 'town', level INTEGER DEFAULT 1,
+                          adventure_xp INTEGER DEFAULT 0, monsters_defeated INTEGER DEFAULT 0,
+                          last_daily_quest DATE, daily_quest_progress TEXT DEFAULT '{}')''')
+            
+            c.execute('''CREATE TABLE IF NOT EXISTS db_version
+                         (version INTEGER PRIMARY KEY)''')
+            
+            # PostgreSQL migrations
+            c.execute('SELECT version FROM db_version ORDER BY version DESC LIMIT 1')
+            current_version = c.fetchone()
+            current_version = current_version[0] if current_version else 0
+            
+            if current_version < 2:
+                # For PostgreSQL, we'll just ensure all columns exist
+                try:
+                    c.execute('ALTER TABLE game_data ADD COLUMN IF NOT EXISTS adventure_xp INTEGER DEFAULT 0')
+                    c.execute('ALTER TABLE game_data ADD COLUMN IF NOT EXISTS monsters_defeated INTEGER DEFAULT 0')
+                    c.execute('ALTER TABLE game_data ADD COLUMN IF NOT EXISTS last_daily_quest DATE')
+                    c.execute('ALTER TABLE game_data ADD COLUMN IF NOT EXISTS daily_quest_progress TEXT DEFAULT \'{}\'')
+                    c.execute('ALTER TABLE users ADD COLUMN IF NOT EXISTS username TEXT')
+                    c.execute('ALTER TABLE users ADD COLUMN IF NOT EXISTS display_name TEXT')
+                except Exception as e:
+                    print(f"Migration note: {e}")
+                
+                c.execute('INSERT INTO db_version (version) VALUES (%s) ON CONFLICT (version) DO NOTHING', (2,))
+                print("✅ PostgreSQL database initialized")
         
-        c.execute('INSERT OR REPLACE INTO db_version (version) VALUES (1)')
-        print("✅ Database migrated to version 1")
-    
-    if current_version < 2:
-        # Migration 2: Add username cache columns
-        try:
-            c.execute('ALTER TABLE users ADD COLUMN username TEXT')
-        except sqlite3.OperationalError:
-            pass
-        try:
-            c.execute('ALTER TABLE users ADD COLUMN display_name TEXT')
-        except sqlite3.OperationalError:
-            pass
+        else:
+            # SQLite syntax
+            c.execute('''CREATE TABLE IF NOT EXISTS users
+                         (user_id INTEGER PRIMARY KEY, xp INTEGER DEFAULT 0, level INTEGER DEFAULT 1, 
+                          last_message TIMESTAMP, total_messages INTEGER DEFAULT 0, 
+                          username TEXT, display_name TEXT)''')
+            
+            c.execute('''CREATE TABLE IF NOT EXISTS config
+                         (key TEXT PRIMARY KEY, value TEXT)''')
+            
+            c.execute('''CREATE TABLE IF NOT EXISTS game_data
+                         (user_id INTEGER PRIMARY KEY, health INTEGER DEFAULT 100, 
+                          gold INTEGER DEFAULT 0, inventory TEXT DEFAULT '{}', 
+                          location TEXT DEFAULT 'town', level INTEGER DEFAULT 1,
+                          adventure_xp INTEGER DEFAULT 0, monsters_defeated INTEGER DEFAULT 0,
+                          last_daily_quest DATE, daily_quest_progress TEXT DEFAULT '{}')''')
+            
+            c.execute('''CREATE TABLE IF NOT EXISTS db_version
+                         (version INTEGER PRIMARY KEY)''')
+            
+            # SQLite migrations
+            c.execute('SELECT version FROM db_version ORDER BY version DESC LIMIT 1')
+            current_version = c.fetchone()
+            current_version = current_version[0] if current_version else 0
+            
+            if current_version < 1:
+                try:
+                    c.execute('ALTER TABLE game_data ADD COLUMN adventure_xp INTEGER DEFAULT 0')
+                except sqlite3.OperationalError:
+                    pass
+                try:
+                    c.execute('ALTER TABLE game_data ADD COLUMN monsters_defeated INTEGER DEFAULT 0')
+                except sqlite3.OperationalError:
+                    pass
+                try:
+                    c.execute('ALTER TABLE game_data ADD COLUMN last_daily_quest DATE')
+                except sqlite3.OperationalError:
+                    pass
+                try:
+                    c.execute('ALTER TABLE game_data ADD COLUMN daily_quest_progress TEXT DEFAULT "{}"')
+                except sqlite3.OperationalError:
+                    pass
+                
+                c.execute('INSERT OR REPLACE INTO db_version (version) VALUES (1)')
+                print("✅ Database migrated to version 1")
+            
+            if current_version < 2:
+                try:
+                    c.execute('ALTER TABLE users ADD COLUMN username TEXT')
+                except sqlite3.OperationalError:
+                    pass
+                try:
+                    c.execute('ALTER TABLE users ADD COLUMN display_name TEXT')
+                except sqlite3.OperationalError:
+                    pass
+                
+                c.execute('INSERT OR REPLACE INTO db_version (version) VALUES (2)')
+                print("✅ Database migrated to version 2")
         
-        c.execute('INSERT OR REPLACE INTO db_version (version) VALUES (2)')
-        print("✅ Database migrated to version 2")
-    
-    # Default configuration
-    default_config = {
-        'xp_per_message': '15',
-        'xp_cooldown': '60',
-        'level_multiplier': '100',  # Base XP for first level up
-        'level_scaling_factor': '1.2',  # How much harder each level gets (1.2 = 20% increase)
-        'xp_channel': 'None',
-        'game_enabled': 'True',
-        'welcome_message': 'Welcome to the server, {user}!',
-        'level_up_message': 'Congratulations {user}! You reached level {level}!',
-        'rare_event_chance': '5',
-        'legendary_event_chance': '1',
-        'daily_quests_enabled': 'True',
-        'adventure_leaderboard_enabled': 'True',
-        'boss_encounter_chance': '3'
-    }
-    
-    for key, value in default_config.items():
-        c.execute('INSERT OR IGNORE INTO config (key, value) VALUES (?, ?)', (key, value))
-    
-    conn.commit()
-    conn.close()
+        # Default configuration (works for both databases)
+        default_config = {
+            'xp_per_message': '15',
+            'xp_cooldown': '60',
+            'level_multiplier': '100',
+            'level_scaling_factor': '1.2',
+            'xp_channel': 'None',
+            'game_enabled': 'True',
+            'welcome_message': 'Welcome to the server, {user}!',
+            'level_up_message': 'Congratulations {user}! You reached level {level}!',
+            'rare_event_chance': '5',
+            'legendary_event_chance': '1',
+            'daily_quests_enabled': 'True',
+            'adventure_leaderboard_enabled': 'True',
+            'boss_encounter_chance': '3'
+        }
+        
+        for key, value in default_config.items():
+            if _current_db_type == 'postgresql':
+                c.execute('INSERT INTO config (key, value) VALUES (%s, %s) ON CONFLICT (key) DO NOTHING', (key, value))
+            else:
+                c.execute('INSERT OR IGNORE INTO config (key, value) VALUES (?, ?)', (key, value))
+        
+        conn.commit()
+        print(f"✅ Database initialization complete ({_current_db_type})")
+        
+    except Exception as e:
+        print(f"❌ Database initialization error: {e}")
+        raise
+    finally:
+        conn.close()
 
 # Utility functions
 def get_config(key):

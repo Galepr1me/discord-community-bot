@@ -22,7 +22,7 @@ def get_db_connection():
     database_url = os.getenv('DATABASE_URL')
     
     if database_url and database_url.startswith('postgresql://'):
-        # Use external PostgreSQL (Supabase, etc.)
+        # Use external PostgreSQL (Neon, Supabase, etc.)
         try:
             import psycopg2
             print(f"🗄️ Attempting to connect to PostgreSQL database...")
@@ -34,6 +34,8 @@ def get_db_connection():
                 sslmode='require'
             )
             print(f"✅ Successfully connected to PostgreSQL database")
+            # Mark connection as PostgreSQL for parameter conversion
+            conn._db_type = 'postgresql'
             return conn
             
         except ImportError:
@@ -41,19 +43,54 @@ def get_db_connection():
             print("🔄 Falling back to SQLite...")
             db_path = get_db_path()
             print(f"🗄️ Using SQLite database at: {db_path}")
-            return sqlite3.connect(db_path)
+            conn = sqlite3.connect(db_path)
+            conn._db_type = 'sqlite'
+            return conn
             
         except Exception as e:
             print(f"❌ PostgreSQL connection failed: {e}")
             print("🔄 Falling back to SQLite...")
             db_path = get_db_path()
             print(f"🗄️ Using SQLite database at: {db_path}")
-            return sqlite3.connect(db_path)
+            conn = sqlite3.connect(db_path)
+            conn._db_type = 'sqlite'
+            return conn
     else:
         # Use SQLite for local development
         db_path = get_db_path()
         print(f"🗄️ Using SQLite database at: {db_path}")
-        return sqlite3.connect(db_path)
+        conn = sqlite3.connect(db_path)
+        conn._db_type = 'sqlite'
+        return conn
+
+def execute_db_query(query, params=None):
+    """Execute a database query with automatic parameter conversion"""
+    conn = get_db_connection()
+    
+    try:
+        # Convert SQLite placeholders (?) to PostgreSQL placeholders (%s) if needed
+        if hasattr(conn, '_db_type') and conn._db_type == 'postgresql':
+            converted_query = query.replace('?', '%s')
+        else:
+            converted_query = query
+        
+        c = conn.cursor()
+        
+        if params:
+            c.execute(converted_query, params)
+        else:
+            c.execute(converted_query)
+        
+        result = c.fetchone()
+        conn.commit()
+        conn.close()
+        
+        return result
+        
+    except Exception as e:
+        print(f"Database error: {e}")
+        conn.close()
+        raise
 
 def get_db_path():
     """Get the appropriate SQLite database path for the environment"""
@@ -67,8 +104,6 @@ def get_db_path():
 
 def init_db():
     conn = get_db_connection()
-    database_url = os.getenv('DATABASE_URL')
-    is_postgres = database_url and database_url.startswith('postgresql://')
     c = conn.cursor()
     
     # XP and levels table with username cache

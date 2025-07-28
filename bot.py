@@ -767,635 +767,257 @@ async def leaderboard_command(ctx, limit: int = 10):
     
     await ctx.send(embed=embed)
 
-# ASCII Adventure Game
-class Game:
+# Trading Card Game System
+class CardGame:
     def __init__(self):
-        self.locations = {
-            'town': {
-                'description': '🏘️ You are in a peaceful town square.',
-                'actions': ['explore', 'shop', 'rest'],
-                'connections': ['forest', 'cave']
-            },
-            'forest': {
-                'description': '🌲 You are in a dark forest. Strange noises echo around you.',
-                'actions': ['hunt', 'gather', 'explore'],
-                'connections': ['town', 'cave'],
-                'monsters': ['Goblin', 'Wolf']
-            },
-            'cave': {
-                'description': '🕳️ You enter a mysterious cave. Treasures might be hidden here.',
-                'actions': ['mine', 'explore', 'dig'],
-                'connections': ['town', 'forest'],
-                'monsters': ['Bat', 'Spider', 'Orc']
-            }
+        # Card elements and their advantages
+        self.elements = {
+            'fire': {'beats': 'earth', 'color': 0xff4500, 'emoji': '🔥'},
+            'water': {'beats': 'fire', 'color': 0x1e90ff, 'emoji': '💧'},
+            'earth': {'beats': 'air', 'color': 0x8b4513, 'emoji': '🌍'},
+            'air': {'beats': 'water', 'color': 0x87ceeb, 'emoji': '💨'},
+            'light': {'beats': 'dark', 'color': 0xffd700, 'emoji': '✨'},
+            'dark': {'beats': 'light', 'color': 0x4b0082, 'emoji': '🌑'}
         }
         
-        self.items = {
-            'Health Potion': {'price': 20, 'effect': 'heal', 'value': 50},
-            'Sword': {'price': 100, 'effect': 'weapon', 'value': 15},
-            'Shield': {'price': 80, 'effect': 'defense', 'value': 10},
-            'Magic Scroll': {'price': 150, 'effect': 'magic', 'value': 25}
+        # Rarity system
+        self.rarities = {
+            'common': {'color': 0x808080, 'drop_rate': 60, 'border': '─'},
+            'rare': {'color': 0x0080ff, 'drop_rate': 25, 'border': '═'},
+            'epic': {'color': 0x8000ff, 'drop_rate': 10, 'border': '━'},
+            'legendary': {'color': 0xff8000, 'drop_rate': 4, 'border': '█'},
+            'mythic': {'color': 0xff0080, 'drop_rate': 1, 'border': '▓'}
         }
         
-        self.bosses = {
-            'forest': {'name': 'Giant Wolf Alpha', 'health': 80, 'gold': 200, 'xp': 100},
-            'cave': {'name': 'Ancient Dragon', 'health': 120, 'gold': 500, 'xp': 200}
-        }
+        # Initial card library
+        self.card_library = self._create_initial_cards()
+    
+    def _create_initial_cards(self):
+        """Create the initial set of 20 cards"""
+        cards = []
         
-        self.daily_quests = [
-            {'name': 'Monster Hunter', 'description': 'Defeat 5 monsters', 'target': 5, 'reward': 100, 'type': 'monsters'},
-            {'name': 'Explorer', 'description': 'Explore 10 times', 'target': 10, 'reward': 75, 'type': 'explore'},
-            {'name': 'Miner', 'description': 'Mine 15 times', 'target': 15, 'reward': 80, 'type': 'mine'},
-            {'name': 'Gold Collector', 'description': 'Collect 300 gold', 'target': 300, 'reward': 50, 'type': 'gold'}
+        # Common Cards (8 total - 2 per basic element)
+        common_cards = [
+            # Fire Commons
+            {'name': 'Fire Sprite', 'element': 'fire', 'rarity': 'common', 'attack': 2, 'health': 1, 'cost': 1,
+             'ascii': ' /^\\\n( o )\n \\v/', 'ability': 'None'},
+            {'name': 'Flame Imp', 'element': 'fire', 'rarity': 'common', 'attack': 3, 'health': 2, 'cost': 2,
+             'ascii': ' /^^^\\\n( >o< )\n  \\_/', 'ability': 'None'},
+            
+            # Water Commons  
+            {'name': 'Water Drop', 'element': 'water', 'rarity': 'common', 'attack': 1, 'health': 3, 'cost': 1,
+             'ascii': '  ~\n (~)\n  ~', 'ability': 'None'},
+            {'name': 'Stream Fish', 'element': 'water', 'rarity': 'common', 'attack': 2, 'health': 2, 'cost': 2,
+             'ascii': ' ><>\n~~~~\n ><>', 'ability': 'None'},
+            
+            # Earth Commons
+            {'name': 'Rock Pebble', 'element': 'earth', 'rarity': 'common', 'attack': 1, 'health': 4, 'cost': 2,
+             'ascii': ' ###\n#####\n ###', 'ability': 'None'},
+            {'name': 'Mud Golem', 'element': 'earth', 'rarity': 'common', 'attack': 3, 'health': 3, 'cost': 3,
+             'ascii': ' ###\n# O #\n ###', 'ability': 'None'},
+            
+            # Air Commons
+            {'name': 'Wind Wisp', 'element': 'air', 'rarity': 'common', 'attack': 3, 'health': 1, 'cost': 1,
+             'ascii': ' ~~~\n~ o ~\n ~~~', 'ability': 'None'},
+            {'name': 'Cloud Sprite', 'element': 'air', 'rarity': 'common', 'attack': 2, 'health': 3, 'cost': 2,
+             'ascii': ' ~~~~\n(  o )\n ~~~~', 'ability': 'None'},
         ]
+        
+        # Rare Cards (6 total)
+        rare_cards = [
+            {'name': 'Fire Wolf', 'element': 'fire', 'rarity': 'rare', 'attack': 4, 'health': 3, 'cost': 3,
+             'ascii': '  /\\_/\\\n ( o.o )\n  > ^ <', 'ability': 'Burn: Deal 1 extra damage'},
+            {'name': 'Ice Mage', 'element': 'water', 'rarity': 'rare', 'attack': 3, 'health': 4, 'cost': 4,
+             'ascii': '   /|\\\n  /*|*\\\n ( o o )', 'ability': 'Freeze: Skip enemy turn'},
+            {'name': 'Stone Giant', 'element': 'earth', 'rarity': 'rare', 'attack': 5, 'health': 5, 'cost': 5,
+             'ascii': '  #####\n #  O  #\n #  _  #\n  #####', 'ability': 'Armor: Reduce damage by 1'},
+            {'name': 'Storm Eagle', 'element': 'air', 'rarity': 'rare', 'attack': 4, 'health': 2, 'cost': 3,
+             'ascii': '  \\   /\n   \\_/\n  (o o)\n   ^^^', 'ability': 'Swift: Attack first'},
+            {'name': 'Light Fairy', 'element': 'light', 'rarity': 'rare', 'attack': 2, 'health': 3, 'cost': 3,
+             'ascii': '   *\n  /|\\\n ( o )\n  /|\\', 'ability': 'Heal: Restore 2 health'},
+            {'name': 'Shadow Cat', 'element': 'dark', 'rarity': 'rare', 'attack': 3, 'health': 2, 'cost': 2,
+             'ascii': '  /\\_/\\\n ( -.o )\n  > ^ <', 'ability': 'Stealth: 50% dodge chance'},
+        ]
+        
+        # Epic Cards (4 total)
+        epic_cards = [
+            {'name': 'Fire Dragon', 'element': 'fire', 'rarity': 'epic', 'attack': 6, 'health': 5, 'cost': 6,
+             'ascii': '   /\\_/\\\n  /  o  \\\n |  ___  |\n  \\  ^  /\n   \\___/', 'ability': 'Inferno: Deal damage to all enemies'},
+            {'name': 'Water Leviathan', 'element': 'water', 'rarity': 'epic', 'attack': 5, 'health': 7, 'cost': 7,
+             'ascii': '  ~~~~~~~\n ~  o o  ~\n~   ___   ~\n ~  \\_/  ~\n  ~~~~~~~', 'ability': 'Tsunami: Heal all allies'},
+            {'name': 'Earth Titan', 'element': 'earth', 'rarity': 'epic', 'attack': 7, 'health': 6, 'cost': 7,
+             'ascii': '  #######\n # O   O #\n #   _   #\n #  \\_/  #\n  #######', 'ability': 'Earthquake: Stun all enemies'},
+            {'name': 'Sky Lord', 'element': 'air', 'rarity': 'epic', 'attack': 6, 'health': 4, 'cost': 5,
+             'ascii': '    /|\\\n   / | \\\n  |  *  |\n   \\ | /\n    \\|/', 'ability': 'Lightning: Deal 3 damage to any target'},
+        ]
+        
+        # Legendary Cards (2 total)
+        legendary_cards = [
+            {'name': 'Phoenix God', 'element': 'light', 'rarity': 'legendary', 'attack': 8, 'health': 8, 'cost': 9,
+             'ascii': '     /|\\\n    / | \\\n   |  *  |\n  /|\\ | /|\\\n / | \\|/ | \\\n|  |  *  |  |\n \\ |     | /\n  \\|_____|/', 'ability': 'Rebirth: Return to hand when destroyed'},
+            {'name': 'Void Demon', 'element': 'dark', 'rarity': 'legendary', 'attack': 9, 'health': 6, 'cost': 8,
+             'ascii': '   #######\n  # \\   / #\n #   \\_/   #\n#  (o) (o)  #\n #    ^    #\n  # \\_-_/ #\n   #######', 'ability': 'Devour: Destroy any card and gain its stats'},
+        ]
+        
+        # Combine all cards
+        cards.extend(common_cards)
+        cards.extend(rare_cards) 
+        cards.extend(epic_cards)
+        cards.extend(legendary_cards)
+        
+        return cards
 
-    def get_game_data(self, user_id):
-        global _current_db_type
-        conn = get_db_connection()
-        c = conn.cursor()
-        
-        if _current_db_type == 'postgresql':
-            c.execute('SELECT * FROM game_data WHERE user_id = %s', (user_id,))
-            result = c.fetchone()
-            if not result:
-                c.execute('INSERT INTO game_data (user_id) VALUES (%s)', (user_id,))
-                conn.commit()
-                today = datetime.now().date().isoformat()
-                result = (user_id, 100, 0, '{}', 'town', 1, 0, 0, today, '{}')
-        else:
-            c.execute('SELECT * FROM game_data WHERE user_id = ?', (user_id,))
-            result = c.fetchone()
-            if not result:
-                c.execute('INSERT INTO game_data (user_id) VALUES (?)', (user_id,))
-                conn.commit()
-                today = datetime.now().date().isoformat()
-                result = (user_id, 100, 0, '{}', 'town', 1, 0, 0, today, '{}')
-        
-        conn.close()
-        return result
+card_game = CardGame()
 
-    def update_game_data(self, user_id, health, gold, inventory, location, level, adventure_xp=None, monsters_defeated=None, daily_quest_progress=None):
-        global _current_db_type
-        conn = get_db_connection()
-        c = conn.cursor()
-        
-        if adventure_xp is not None and monsters_defeated is not None and daily_quest_progress is not None:
-            if _current_db_type == 'postgresql':
-                c.execute('''UPDATE game_data SET health = %s, gold = %s, inventory = %s, 
-                             location = %s, level = %s, adventure_xp = %s, monsters_defeated = %s, daily_quest_progress = %s
-                             WHERE user_id = %s''',
-                          (health, gold, inventory, location, level, adventure_xp, monsters_defeated, daily_quest_progress, user_id))
-            else:
-                c.execute('''UPDATE game_data SET health = ?, gold = ?, inventory = ?, 
-                             location = ?, level = ?, adventure_xp = ?, monsters_defeated = ?, daily_quest_progress = ?
-                             WHERE user_id = ?''',
-                          (health, gold, inventory, location, level, adventure_xp, monsters_defeated, daily_quest_progress, user_id))
-        else:
-            if _current_db_type == 'postgresql':
-                c.execute('''UPDATE game_data SET health = %s, gold = %s, inventory = %s, 
-                             location = %s, level = %s WHERE user_id = %s''',
-                          (health, gold, inventory, location, level, user_id))
-            else:
-                c.execute('''UPDATE game_data SET health = ?, gold = ?, inventory = ?, 
-                             location = ?, level = ? WHERE user_id = ?''',
-                          (health, gold, inventory, location, level, user_id))
-        
-        conn.commit()
-        conn.close()
+# Card Game Commands
+def format_card_display(card):
+    """Format a card for display with ASCII art and stats"""
+    rarity = card['rarity']
+    element = card['element']
+    
+    # Get colors and borders
+    rarity_info = card_game.rarities[rarity]
+    element_info = card_game.elements[element]
+    
+    border_char = rarity_info['border']
+    color = rarity_info['color']
+    
+    # Create the card display
+    card_lines = card['ascii'].split('\n')
+    max_width = max(len(line) for line in card_lines) + 4
+    
+    # Top border
+    display = f"╔{'═' * (max_width - 2)}╗\n"
+    
+    # Card name
+    name_line = f"║ {card['name'].center(max_width - 4)} ║\n"
+    display += name_line
+    
+    # Separator
+    display += f"║{' ' * (max_width - 2)}║\n"
+    
+    # ASCII art
+    for line in card_lines:
+        padded_line = line.center(max_width - 4)
+        display += f"║ {padded_line} ║\n"
+    
+    # Separator
+    display += f"║{' ' * (max_width - 2)}║\n"
+    
+    # Stats
+    stats_line = f"ATK: {card['attack']}  HP: {card['health']}"
+    cost_element = f"COST: {card['cost']}  {element_info['emoji']}{element.upper()}"
+    
+    display += f"║ {stats_line.ljust(max_width - 4)} ║\n"
+    display += f"║ {cost_element.ljust(max_width - 4)} ║\n"
+    
+    # Ability (if not None)
+    if card['ability'] != 'None':
+        ability_line = card['ability'][:max_width - 4]  # Truncate if too long
+        display += f"║ {ability_line.ljust(max_width - 4)} ║\n"
+    
+    # Bottom border
+    display += f"╚{'═' * (max_width - 2)}╝"
+    
+    return display, color
 
-    def get_daily_quest(self, user_id):
-        import hashlib
-        today = datetime.now().date().isoformat()
-        # Generate consistent daily quest based on user ID and date
-        seed = hashlib.md5(f"{user_id}{today}".encode()).hexdigest()
-        random.seed(int(seed[:8], 16))
-        quest = random.choice(self.daily_quests)
-        random.seed()  # Reset random seed
-        return quest
-
-    def update_quest_progress(self, user_id, quest_type, amount=1):
-        global _current_db_type
-        user_data = self.get_game_data(user_id)
-        today = datetime.now().date().isoformat()
-        last_quest_date = user_data[8] if len(user_data) > 8 else today
-        progress_str = user_data[9] if len(user_data) > 9 else '{}'
-        
-        # Reset progress if new day
-        if last_quest_date != today:
-            progress = {}
-        else:
-            try:
-                progress = json.loads(progress_str)
-            except:
-                progress = {}
-        
-        # Update progress
-        progress[quest_type] = progress.get(quest_type, 0) + amount
-        
-        # Update database
-        conn = get_db_connection()
-        c = conn.cursor()
-        
-        if _current_db_type == 'postgresql':
-            c.execute('UPDATE game_data SET last_daily_quest = %s, daily_quest_progress = %s WHERE user_id = %s',
-                      (today, json.dumps(progress), user_id))
-        else:
-            c.execute('UPDATE game_data SET last_daily_quest = ?, daily_quest_progress = ? WHERE user_id = ?',
-                      (today, json.dumps(progress), user_id))
-        
-        conn.commit()
-        conn.close()
-        
-        return progress
-
-game = Game()
-
-@bot.command(name='adventure')
-async def adventure_command(ctx):
-    """Start or continue your adventure!"""
+@bot.command(name='cards')
+async def cards_command(ctx):
+    """View your card collection"""
     if get_config('game_enabled') != 'True':
-        await ctx.send("The adventure game is currently disabled.")
-        return
-        
-    user_data = game.get_game_data(ctx.author.id)
-    location = user_data[4]
-    health = user_data[1]
-    gold = user_data[2]
-    adventure_level = user_data[5] if len(user_data) > 5 else 1
-    adventure_xp = user_data[6] if len(user_data) > 6 else 0
-    
-    loc_info = game.locations[location]
-    
-    embed = discord.Embed(title="🎮 Adventure Game", color=0x9b59b6)
-    embed.add_field(name="Location", value=loc_info['description'], inline=False)
-    embed.add_field(name="Health", value=f"❤️ {health}/100", inline=True)
-    embed.add_field(name="Gold", value=f"💰 {gold}", inline=True)
-    embed.add_field(name="Adventure Level", value=f"⭐ {adventure_level} ({adventure_xp} XP)", inline=True)
-    embed.add_field(name="Available Actions", 
-                   value=", ".join(loc_info['actions']), inline=False)
-    
-    if 'connections' in loc_info:
-        embed.add_field(name="Travel to", 
-                       value=", ".join(loc_info['connections']), inline=False)
-    
-    # Show daily quest if enabled
-    if get_config('daily_quests_enabled') == 'True':
-        daily_quest = game.get_daily_quest(ctx.author.id)
-        progress_data = game.update_quest_progress(ctx.author.id, 'check', 0)  # Just check, don't increment
-        quest_progress = progress_data.get(daily_quest['type'], 0)
-        
-        quest_status = f"**Daily Quest**: {daily_quest['name']}\n"
-        quest_status += f"{daily_quest['description']} ({quest_progress}/{daily_quest['target']})\n"
-        quest_status += f"Reward: {daily_quest['reward']} gold 💰"
-        
-        embed.add_field(name="📋 Today's Quest", value=quest_status, inline=False)
-    
-    embed.set_footer(text="Use !action <action_name> to perform actions • !use <item> to use items")
-    
-    await ctx.send(embed=embed)
-
-@bot.command(name='action')
-@commands.cooldown(1, 3, commands.BucketType.user)  # 1 use per 3 seconds per user
-async def action_command(ctx, *, action):
-    """Perform an action in the adventure game"""
-    if get_config('game_enabled') != 'True':
-        return
-        
-    user_data = game.get_game_data(ctx.author.id)
-    user_id = user_data[0]
-    health = user_data[1]
-    gold = user_data[2]
-    inventory_str = user_data[3]
-    location = user_data[4]
-    adventure_level = user_data[5] if len(user_data) > 5 else 1
-    adventure_xp = user_data[6] if len(user_data) > 6 else 0
-    monsters_defeated = user_data[7] if len(user_data) > 7 else 0
-    daily_progress_str = user_data[9] if len(user_data) > 9 else '{}'
-    
-    inventory = json.loads(inventory_str)
-    loc_info = game.locations[location]
-    
-    # Handle movement
-    if action in game.locations:
-        if action in loc_info.get('connections', []):
-            game.update_game_data(user_id, health, gold, inventory_str, action, adventure_level, adventure_xp, monsters_defeated, daily_progress_str)
-            await ctx.send(f"🚶 You travel to the {action}.")
-            await adventure_command(ctx)
-            return
-        else:
-            await ctx.send("❌ You can't travel there from your current location.")
-            return
-    
-    # Handle actions
-    if action not in loc_info['actions']:
-        await ctx.send(f"❌ You can't {action} here. Available actions: {', '.join(loc_info['actions'])}")
+        await ctx.send("The card game is currently disabled.")
         return
     
-    result = ""
-    xp_gained = 10  # Base XP for any action
-    quest_updates = {}
-    
-    # Check for rare events first
-    rare_chance = int(get_config('rare_event_chance'))
-    legendary_chance = int(get_config('legendary_event_chance'))
-    boss_chance = int(get_config('boss_encounter_chance'))
-    
-    random_roll = random.randint(1, 100)
-    
-    # Legendary Event (1% default)
-    if random_roll <= legendary_chance:
-        legendary_rewards = [
-            ("🌟 You discovered an ANCIENT TREASURE CHEST! Legendary find!", 800, 50, 200),
-            ("👑 You found the Crown of Kings! A truly legendary artifact!", 1000, 0, 300),
-            ("🗡️ You uncovered Excalibur! The legendary sword grants you power!", 500, 100, 250)
-        ]
-        event_text, gold_reward, health_reward, xp_reward = random.choice(legendary_rewards)
-        gold += gold_reward
-        health = min(100, health + health_reward)
-        xp_gained = xp_reward
-        result = event_text
-        quest_updates['gold'] = gold_reward
-        
-    # Boss Encounter (3% default)
-    elif random_roll <= boss_chance + legendary_chance and location in game.bosses:
-        boss = game.bosses[location]
-        # Boss fight calculation
-        player_power = adventure_level * 10 + inventory.get('Sword', 0) * 15 + inventory.get('Shield', 0) * 5
-        success_chance = min(90, max(20, player_power - boss['health'] + 50))
-        
-        if random.randint(1, 100) <= success_chance:
-            gold += boss['gold']
-            adventure_xp += boss['xp']
-            monsters_defeated += 1
-            result = f"⚔️ BOSS BATTLE! You defeated the {boss['name']}! +{boss['gold']} gold, +{boss['xp']} adventure XP!"
-            quest_updates['monsters'] = 1
-            quest_updates['gold'] = boss['gold']
-        else:
-            health_loss = random.randint(30, 50)
-            health = max(1, health - health_loss)
-            result = f"💀 BOSS BATTLE! The {boss['name']} overpowered you! -{health_loss} health. Train more and try again!"
-    
-    # Rare Event (5% default)
-    elif random_roll <= rare_chance + boss_chance + legendary_chance:
-        rare_events = [
-            ("💎 You found a rare gemstone! Sparkling treasure!", random.randint(150, 300), 0, 50),
-            ("🧙‍♂️ A mysterious wizard grants you a boon!", random.randint(100, 200), random.randint(20, 40), 75),
-            ("📜 You discovered an ancient map to hidden treasure!", random.randint(200, 400), 0, 60),
-            ("🍀 A lucky clover boosts your fortune!", random.randint(175, 350), random.randint(15, 30), 80)
-        ]
-        event_text, gold_reward, health_reward, xp_reward = random.choice(rare_events)
-        gold += gold_reward
-        health = min(100, health + health_reward)
-        xp_gained = xp_reward
-        result = f"✨ RARE EVENT! {event_text}"
-        quest_updates['gold'] = gold_reward
-    
-    # Normal actions
-    else:
-        if action == 'explore':
-            quest_updates['explore'] = 1
-            outcomes = [
-                ("🔍 You found a hidden treasure! +50 gold", 50, 0),
-                ("🕷️ You encountered a spider but escaped! -10 health", 0, -10),
-                ("💎 You discovered a valuable gem! +30 gold", 30, 0),
-                ("🍄 You found some berries and feel refreshed! +20 health", 0, 20),
-                ("❌ You found nothing interesting.", 0, 0),
-                ("🗝️ You found an old key! +25 gold", 25, 0)
-            ]
-            outcome_text, gold_change, health_change = random.choice(outcomes)
-            result = outcome_text
-            gold += gold_change
-            health = max(0, min(100, health + health_change))
-            if gold_change > 0:
-                quest_updates['gold'] = gold_change
-        
-        elif action == 'hunt' and location == 'forest':
-            quest_updates['explore'] = 1
-            if random.random() < 0.7:  # 70% success rate
-                monster = random.choice(loc_info['monsters'])
-                gold_reward = random.randint(25, 60)
-                health_loss = random.randint(5, 20)
-                
-                # Apply weapon bonus
-                weapon_bonus = inventory.get('Sword', 0) * 10
-                shield_defense = inventory.get('Shield', 0) * 5
-                gold_reward += weapon_bonus
-                health_loss = max(1, health_loss - shield_defense)
-                
-                gold += gold_reward
-                health = max(0, health - health_loss)
-                monsters_defeated += 1
-                adventure_xp += 25
-                result = f"⚔️ You defeated a {monster}! +{gold_reward} gold, -{health_loss} health, +25 adventure XP"
-                quest_updates['monsters'] = 1
-                quest_updates['gold'] = gold_reward
-            else:
-                result = "🏃 You couldn't find any monsters to hunt."
-        
-        elif action == 'shop' and location == 'town':
-            shop_embed = discord.Embed(title="🏪 Town Shop", color=0xe74c3c)
-            for item, info in game.items.items():
-                effect_desc = f"({info['effect'].title()}: +{info['value']})" if 'value' in info else ""
-                shop_embed.add_field(name=item, value=f"💰 {info['price']} gold {effect_desc}", inline=True)
-            shop_embed.set_footer(text="Use !buy <item_name> to purchase")
-            await ctx.send(embed=shop_embed)
-            return
-        
-        elif action == 'rest' and location == 'town':
-            health = 100
-            result = "😴 You rest at the inn and restore full health!"
-        
-        elif action == 'mine' and location == 'cave':
-            quest_updates['mine'] = 1
-            quest_updates['explore'] = 1
-            gold_found = random.randint(15, 50)
-            gold += gold_found
-            adventure_xp += 15
-            result = f"⛏️ You mined some precious ore! +{gold_found} gold, +15 adventure XP"
-            quest_updates['gold'] = gold_found
-        
-        else:
-            result = f"🤷 You {action} but nothing notable happens."
-    
-    # Level up adventure character
-    adventure_xp += xp_gained
-    new_adventure_level = (adventure_xp // 200) + 1  # 200 XP per adventure level
-    if new_adventure_level > adventure_level:
-        result += f"\n🎉 Adventure Level Up! You are now level {new_adventure_level}!"
-        adventure_level = new_adventure_level
-    
-    # Update quest progress
-    if get_config('daily_quests_enabled') == 'True':
-        for quest_type, amount in quest_updates.items():
-            game.update_quest_progress(user_id, quest_type, amount)
-    
-    # Update game data
-    game.update_game_data(user_id, health, gold, json.dumps(inventory), location, adventure_level, adventure_xp, monsters_defeated, daily_progress_str)
-    
-    embed = discord.Embed(title="Action Result", description=result, color=0x2ecc71)
-    embed.add_field(name="Health", value=f"❤️ {health}/100", inline=True)
-    embed.add_field(name="Gold", value=f"💰 {gold}", inline=True)
-    embed.add_field(name="Adventure Level", value=f"⭐ {adventure_level}", inline=True)
-    
-    await ctx.send(embed=embed)
-
-@bot.command(name='inventory')
-async def inventory_command(ctx):
-    """Check your inventory"""
-    user_data = game.get_game_data(ctx.author.id)
-    inventory_str = user_data[3]
-    inventory = json.loads(inventory_str)
-    
-    if not inventory:
-        await ctx.send("🎒 Your inventory is empty.")
-        return
-    
-    embed = discord.Embed(title="🎒 Your Inventory", color=0x95a5a6)
-    for item, count in inventory.items():
-        item_info = game.items.get(item, {})
-        effect_text = ""
-        if 'effect' in item_info and 'value' in item_info:
-            effect_text = f" ({item_info['effect'].title()}: +{item_info['value']})"
-        embed.add_field(name=item, value=f"x{count}{effect_text}", inline=True)
-    
-    embed.set_footer(text="Use !use <item> to use consumable items")
-    await ctx.send(embed=embed)
-
-@bot.command(name='buy')
-async def buy_command(ctx, *, item_name):
-    """Buy an item from the shop"""
-    user_data = game.get_game_data(ctx.author.id)
-    user_id = user_data[0]
-    health = user_data[1]
-    gold = user_data[2]
-    inventory_str = user_data[3]
-    location = user_data[4]
-    adventure_level = user_data[5] if len(user_data) > 5 else 1
-    adventure_xp = user_data[6] if len(user_data) > 6 else 0
-    monsters_defeated = user_data[7] if len(user_data) > 7 else 0
-    daily_progress_str = user_data[9] if len(user_data) > 9 else '{}'
-    
-    if location != 'town':
-        await ctx.send("❌ You can only shop in town!")
-        return
-    
-    if item_name not in game.items:
-        await ctx.send(f"❌ Item '{item_name}' not found in shop.")
-        return
-    
-    item = game.items[item_name]
-    if gold < item['price']:
-        await ctx.send(f"❌ You need {item['price']} gold but only have {gold}.")
-        return
-    
-    inventory = json.loads(inventory_str)
-    inventory[item_name] = inventory.get(item_name, 0) + 1
-    gold -= item['price']
-    
-    game.update_game_data(user_id, health, gold, json.dumps(inventory), location, adventure_level, adventure_xp, monsters_defeated, daily_progress_str)
-    
-    await ctx.send(f"✅ You bought {item_name} for {item['price']} gold!")
-
-@bot.command(name='use')
-async def use_item_command(ctx, *, item_name):
-    """Use an item from your inventory"""
-    user_data = game.get_game_data(ctx.author.id)
-    user_id = user_data[0]
-    health = user_data[1]
-    gold = user_data[2]
-    inventory_str = user_data[3]
-    location = user_data[4]
-    adventure_level = user_data[5] if len(user_data) > 5 else 1
-    adventure_xp = user_data[6] if len(user_data) > 6 else 0
-    monsters_defeated = user_data[7] if len(user_data) > 7 else 0
-    daily_progress_str = user_data[9] if len(user_data) > 9 else '{}'
-    
-    inventory = json.loads(inventory_str)
-    
-    if item_name not in inventory or inventory[item_name] <= 0:
-        await ctx.send(f"❌ You don't have any {item_name} in your inventory.")
-        return
-    
-    if item_name not in game.items:
-        await ctx.send(f"❌ {item_name} cannot be used.")
-        return
-    
-    item = game.items[item_name]
-    result = ""
-    
-    if item['effect'] == 'heal':
-        old_health = health
-        health = min(100, health + item['value'])
-        healed = health - old_health
-        result = f"💚 You used {item_name} and restored {healed} health!"
-        
-    elif item['effect'] == 'magic':
-        # Magic scroll gives temporary XP boost
-        adventure_xp += item['value']
-        result = f"✨ You used {item_name} and gained {item['value']} adventure XP!"
-        
-    else:
-        await ctx.send(f"❌ {item_name} is passive equipment and doesn't need to be used manually.")
-        return
-    
-    # Remove item from inventory
-    inventory[item_name] -= 1
-    if inventory[item_name] <= 0:
-        del inventory[item_name]
-    
-    # Update game data
-    game.update_game_data(user_id, health, gold, json.dumps(inventory), location, adventure_level, adventure_xp, monsters_defeated, daily_progress_str)
-    
-    embed = discord.Embed(title="Item Used", description=result, color=0x00ff00)
-    embed.add_field(name="Health", value=f"❤️ {health}/100", inline=True)
-    embed.add_field(name="Adventure XP", value=f"⭐ {adventure_xp}", inline=True)
-    
-    await ctx.send(embed=embed)
-
-@bot.command(name='adventure_leaderboard')
-async def adventure_leaderboard_command(ctx, category='gold'):
-    """Show adventure leaderboards - categories: gold, level, monsters"""
-    if get_config('adventure_leaderboard_enabled') != 'True':
-        await ctx.send("Adventure leaderboards are currently disabled.")
-        return
-    
-    global _current_db_type
-    conn = get_db_connection()
-    c = conn.cursor()
-    
-    if category == 'gold':
-        if _current_db_type == 'postgresql':
-            c.execute('SELECT user_id, gold FROM game_data WHERE gold > 0 ORDER BY gold DESC LIMIT 10')
-        else:
-            c.execute('SELECT user_id, gold FROM game_data WHERE gold > 0 ORDER BY gold DESC LIMIT 10')
-        title = "💰 Adventure Gold Leaderboard"
-        icon = "💰"
-    elif category == 'level':
-        if _current_db_type == 'postgresql':
-            c.execute('SELECT user_id, level, adventure_xp FROM game_data WHERE adventure_xp > 0 ORDER BY level DESC, adventure_xp DESC LIMIT 10')
-        else:
-            c.execute('SELECT user_id, level, adventure_xp FROM game_data WHERE adventure_xp > 0 ORDER BY level DESC, adventure_xp DESC LIMIT 10')
-        title = "⭐ Adventure Level Leaderboard" 
-        icon = "⭐"
-    elif category == 'monsters':
-        if _current_db_type == 'postgresql':
-            c.execute('SELECT user_id, monsters_defeated FROM game_data WHERE monsters_defeated > 0 ORDER BY monsters_defeated DESC LIMIT 10')
-        else:
-            c.execute('SELECT user_id, monsters_defeated FROM game_data WHERE monsters_defeated > 0 ORDER BY monsters_defeated DESC LIMIT 10')
-        title = "⚔️ Monster Hunter Leaderboard"
-        icon = "⚔️"
-    else:
-        await ctx.send("❌ Invalid category. Use: `gold`, `level`, or `monsters`")
-        return
-    
-    results = c.fetchall()
-    conn.close()
-    
-    embed = discord.Embed(title=title, color=0xffd700)
-    
-    if not results:
-        embed.description = "No adventure data yet! Start playing with `!adventure`"
-        await ctx.send(embed=embed)
-        return
-    
-    leaderboard_text = ""
-    for i, result in enumerate(results, 1):
-        user_id = result[0]
-        
-        # Use the helper function to get display name
-        name = await get_user_display_name_async(ctx, user_id)
-        
-        medal = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else f"**{i}.**"
-        
-        if category == 'gold':
-            value = f"{result[1]:,} gold"
-        elif category == 'level':
-            value = f"Level {result[1]} ({result[2]:,} XP)"
-        else:  # monsters
-            value = f"{result[1]:,} monsters defeated"
-        
-        leaderboard_text += f"{medal} **{name}**\n└ {icon} {value}\n\n"
-    
-    embed.description = leaderboard_text
-    embed.set_footer(text="Use !adventure_leaderboard <gold/level/monsters> for different rankings")
-    
-    await ctx.send(embed=embed)
-
-@bot.command(name='daily_quest')
-async def daily_quest_command(ctx):
-    """Check your daily quest progress"""
-    if get_config('daily_quests_enabled') != 'True':
-        await ctx.send("Daily quests are currently disabled.")
-        return
-    
-    user_data = game.get_game_data(ctx.author.id)
-    daily_quest = game.get_daily_quest(ctx.author.id)
-    progress_data = game.update_quest_progress(ctx.author.id, 'check', 0)  # Just check
-    
-    quest_progress = progress_data.get(daily_quest['type'], 0)
-    completed = quest_progress >= daily_quest['target']
+    # For now, show a sample card since we haven't implemented collection yet
+    sample_card = card_game.card_library[0]  # Fire Sprite
+    card_display, color = format_card_display(sample_card)
     
     embed = discord.Embed(
-        title="📋 Daily Quest", 
-        color=0x00ff00 if completed else 0x3498db
+        title="🃏 Your Card Collection", 
+        description=f"```\n{card_display}\n```",
+        color=color
     )
     
-    embed.add_field(name="Quest", value=daily_quest['name'], inline=True)
-    embed.add_field(name="Description", value=daily_quest['description'], inline=True)
-    embed.add_field(name="Reward", value=f"{daily_quest['reward']} gold", inline=True)
+    embed.add_field(
+        name="Collection Stats", 
+        value="📦 **0** cards owned\n🎴 **0** unique cards\n💎 **0** rare+ cards", 
+        inline=True
+    )
     
-    status = "✅ COMPLETED!" if completed else f"{quest_progress}/{daily_quest['target']}"
-    embed.add_field(name="Progress", value=status, inline=False)
-    
-    if completed:
-        embed.add_field(name="💰 Claim Reward", value="Use `!claim_quest` to get your reward!", inline=False)
+    embed.set_footer(text="Card collection system coming soon! • Use !pack to get your first cards")
     
     await ctx.send(embed=embed)
 
-@bot.command(name='claim_quest')
-async def claim_quest_command(ctx):
-    """Claim your completed daily quest reward"""
-    if get_config('daily_quests_enabled') != 'True':
-        await ctx.send("Daily quests are currently disabled.")
+@bot.command(name='pack')
+async def pack_command(ctx):
+    """Open a card pack"""
+    if get_config('game_enabled') != 'True':
+        await ctx.send("The card game is currently disabled.")
         return
     
-    user_data = game.get_game_data(ctx.author.id)
-    daily_quest = game.get_daily_quest(ctx.author.id)
-    progress_data = game.update_quest_progress(ctx.author.id, 'check', 0)
+    # Simulate opening a pack with 3 random cards
+    pack_cards = []
     
-    quest_progress = progress_data.get(daily_quest['type'], 0)
+    for _ in range(3):
+        # Determine rarity based on drop rates
+        roll = random.randint(1, 100)
+        cumulative = 0
+        selected_rarity = 'common'
+        
+        for rarity, info in card_game.rarities.items():
+            cumulative += info['drop_rate']
+            if roll <= cumulative:
+                selected_rarity = rarity
+                break
+        
+        # Get random card of selected rarity
+        rarity_cards = [card for card in card_game.card_library if card['rarity'] == selected_rarity]
+        if rarity_cards:
+            pack_cards.append(random.choice(rarity_cards))
     
-    if quest_progress < daily_quest['target']:
-        await ctx.send(f"❌ Quest not completed yet! Progress: {quest_progress}/{daily_quest['target']}")
-        return
+    # Display the pack opening
+    embed = discord.Embed(
+        title="🎁 Card Pack Opened!", 
+        description="You received 3 new cards:",
+        color=0xffd700
+    )
     
-    # Check if already claimed today
-    claimed_key = f"claimed_{daily_quest['type']}"
-    if progress_data.get(claimed_key, False):
-        await ctx.send("❌ You already claimed today's quest reward!")
-        return
+    for i, card in enumerate(pack_cards, 1):
+        rarity_info = card_game.rarities[card['rarity']]
+        element_info = card_game.elements[card['element']]
+        
+        rarity_text = card['rarity'].title()
+        if card['rarity'] in ['epic', 'legendary', 'mythic']:
+            rarity_text = f"**{rarity_text}**"  # Bold for rare cards
+        
+        embed.add_field(
+            name=f"Card {i}: {card['name']}", 
+            value=f"{element_info['emoji']} {card['element'].title()} • {rarity_text}\n"
+                  f"⚔️ {card['attack']} ATK • ❤️ {card['health']} HP • 💎 {card['cost']} Cost",
+            inline=False
+        )
     
-    # Award the reward
-    user_id = user_data[0]
-    health = user_data[1]
-    gold = user_data[2] + daily_quest['reward']
-    inventory_str = user_data[3]
-    location = user_data[4]
-    adventure_level = user_data[5] if len(user_data) > 5 else 1
-    adventure_xp = user_data[6] if len(user_data) > 6 else 0
-    monsters_defeated = user_data[7] if len(user_data) > 7 else 0
+    embed.set_footer(text="Use !cards to view your collection • Card storage system coming soon!")
     
-    # Mark as claimed
-    progress_data[claimed_key] = True
-    game.update_quest_progress(ctx.author.id, claimed_key, 0)  # Update the claimed status
+    await ctx.send(embed=embed)
+
+# Placeholder commands for removed adventure game features
+@bot.command(name='adventure')
+async def adventure_command(ctx):
+    """Adventure game has been replaced with the card game"""
+    embed = discord.Embed(
+        title="🎮 Adventure Game Retired", 
+        description="The adventure game has been replaced with our new **Trading Card Game**!",
+        color=0x9b59b6
+    )
     
-    game.update_game_data(user_id, health, gold, inventory_str, location, adventure_level, adventure_xp, monsters_defeated, json.dumps(progress_data))
+    embed.add_field(
+        name="🃏 Try the New Card Game!", 
+        value="🔹 `!cards` - View your collection\n🔹 `!pack` - Open card packs\n🔹 More features coming soon!",
+        inline=False
+    )
     
-    embed = discord.Embed(title="🎉 Quest Completed!", color=0x00ff00)
-    embed.add_field(name="Quest", value=daily_quest['name'], inline=True)
-    embed.add_field(name="Reward Claimed", value=f"💰 {daily_quest['reward']} gold", inline=True)
-    embed.add_field(name="New Gold Total", value=f"💰 {gold}", inline=True)
-    
+    embed.set_footer(text="The card game is still in development - stay tuned for battles and trading!")
     await ctx.send(embed=embed)
 
 # Bot events
@@ -1534,7 +1156,7 @@ async def help_custom(ctx):
     # Main help embed
     embed = discord.Embed(
         title="🤖 Community Bot Commands", 
-        description="Your complete guide to XP systems and epic adventures!",
+        description="Your complete guide to XP systems and trading card battles!",
         color=0x00d4ff
     )
     
@@ -1552,39 +1174,42 @@ async def help_custom(ctx):
         inline=True
     )
     
-    # Adventure Game Section  
+    # Trading Card Game Section  
     embed.add_field(
-        name="🎮 Adventure RPG", 
+        name="🃏 Trading Card Game", 
         value=(
-            "🔹 `!adventure` - Start your journey\n"
-            "🔹 `!action <explore/hunt/mine>` - Take actions\n"
-            "🔹 `!inventory` - Check your items\n"
-            "🔹 `!use <item>` - Use potions & scrolls\n"
-            "🔹 `!buy <item>` - Shop in town\n"
-            "⚡ *Rare events, boss battles & more!*"
+            "🔹 `!cards` - View your card collection\n"
+            "🔹 `!pack` - Open card packs\n"
+            "🔹 `!adventure` - Info about the new card game\n"
+            "🔹 More features coming soon!\n"
+            "⚡ *Fantasy creatures with ASCII art!*"
         ), 
         inline=True
     )
     
-    # Competition Section
+    # Card Elements
     embed.add_field(
-        name="🏆 Leaderboards & Rankings", 
+        name="🌟 Card Elements", 
         value=(
-            "🔹 `!adventure_leaderboard gold` - Top collectors 💰\n"
-            "🔹 `!adventure_leaderboard level` - Highest adventurers ⭐\n"
-            "🔹 `!adventure_leaderboard monsters` - Monster hunters ⚔️\n"
-            "🏆 *Compete for glory and bragging rights!*"
+            "🔥 **Fire** beats Earth\n"
+            "💧 **Water** beats Fire\n"
+            "🌍 **Earth** beats Air\n"
+            "💨 **Air** beats Water\n"
+            "✨ **Light** beats Dark\n"
+            "🌑 **Dark** beats Light"
         ), 
         inline=True
     )
     
-    # Daily Quests Section
+    # Card Rarities
     embed.add_field(
-        name="📋 Daily Quest System", 
+        name="💎 Card Rarities", 
         value=(
-            "🔹 `!daily_quest` - Check today's challenge\n"
-            "🔹 `!claim_quest` - Collect your rewards\n"
-            "📋 *New quest every day with bonus gold!*"
+            "⚪ **Common** - 60% drop rate\n"
+            "🔵 **Rare** - 25% drop rate\n"
+            "🟣 **Epic** - 10% drop rate\n"
+            "🟠 **Legendary** - 4% drop rate\n"
+            "🟡 **Mythic** - 1% drop rate"
         ), 
         inline=True
     )
@@ -1594,28 +1219,29 @@ async def help_custom(ctx):
         name="🚀 Quick Start Guide", 
         value=(
             "1️⃣ Chat normally to gain XP\n"
-            "2️⃣ Use `!adventure` to start the game\n"
-            "3️⃣ Try `!action explore` for your first adventure\n"
-            "4️⃣ Check `!daily_quest` for bonus objectives"
+            "2️⃣ Use `!pack` to open your first card pack\n"
+            "3️⃣ Use `!cards` to view your collection\n"
+            "4️⃣ Stay tuned for battles and trading!"
         ), 
         inline=True
     )
     
-    # Game Locations
+    # Coming Soon
     embed.add_field(
-        name="🗺️ Adventure Locations", 
+        name="🔮 Coming Soon", 
         value=(
-            "🏘️ **Town** - Shop, rest, safe exploration\n"
-            "🌲 **Forest** - Hunt monsters, boss battles\n"
-            "🕳️ **Cave** - Mine gold, dangerous creatures\n"
-            "🎲 *Watch for rare events and legendary finds!*"
+            "⚔️ **Player vs Player Battles**\n"
+            "🤖 **AI Opponents**\n"
+            "💱 **Card Trading System**\n"
+            "🏆 **Tournament Mode**\n"
+            "🎯 **Daily Card Rewards**"
         ), 
         inline=True
     )
     
     # Footer with additional info
     embed.set_footer(
-        text="💡 Tip: Start in Town, then explore Forest and Cave! • 🎲 5% chance for rare events!",
+        text="💡 Tip: Open packs to collect rare cards! • 🎴 20 unique cards available",
     )
     
     await ctx.send(embed=embed)

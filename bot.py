@@ -243,34 +243,59 @@ def init_db():
 
 # Utility functions
 def get_config(key):
+    global _current_db_type
     conn = get_db_connection()
     c = conn.cursor()
-    c.execute('SELECT value FROM config WHERE key = ?', (key,))
+    
+    if _current_db_type == 'postgresql':
+        c.execute('SELECT value FROM config WHERE key = %s', (key,))
+    else:
+        c.execute('SELECT value FROM config WHERE key = ?', (key,))
+    
     result = c.fetchone()
     conn.close()
     return result[0] if result else None
 
 def set_config(key, value):
+    global _current_db_type
     conn = get_db_connection()
     c = conn.cursor()
-    c.execute('INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)', (key, value))
+    
+    if _current_db_type == 'postgresql':
+        c.execute('INSERT INTO config (key, value) VALUES (%s, %s) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value', (key, value))
+    else:
+        c.execute('INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)', (key, value))
+    
     conn.commit()
     conn.close()
 
 def get_user_data(user_id):
+    global _current_db_type
     conn = get_db_connection()
     c = conn.cursor()
-    c.execute('SELECT * FROM users WHERE user_id = ?', (user_id,))
-    result = c.fetchone()
-    if not result:
-        c.execute('INSERT INTO users (user_id) VALUES (?)', (user_id,))
-        conn.commit()
-        result = (user_id, 0, 1, None, 0, None, None)  # Include new username columns
+    
+    if _current_db_type == 'postgresql':
+        c.execute('SELECT * FROM users WHERE user_id = %s', (user_id,))
+        result = c.fetchone()
+        if not result:
+            c.execute('INSERT INTO users (user_id) VALUES (%s)', (user_id,))
+            conn.commit()
+            result = (user_id, 0, 1, None, 0, None, None)
+    else:
+        c.execute('SELECT * FROM users WHERE user_id = ?', (user_id,))
+        result = c.fetchone()
+        if not result:
+            c.execute('INSERT INTO users (user_id) VALUES (?)', (user_id,))
+            conn.commit()
+            result = (user_id, 0, 1, None, 0, None, None)
+    
     conn.close()
     return result
 
 def get_user_display_name(ctx, user_id):
     """Get user display name with multiple fallback methods"""
+    global _current_db_type
+    
     # Method 1: Try to get server member (for current nickname)
     try:
         member = ctx.guild.get_member(user_id)
@@ -291,7 +316,12 @@ def get_user_display_name(ctx, user_id):
     try:
         conn = get_db_connection()
         c = conn.cursor()
-        c.execute('SELECT display_name, username FROM users WHERE user_id = ?', (user_id,))
+        
+        if _current_db_type == 'postgresql':
+            c.execute('SELECT display_name, username FROM users WHERE user_id = %s', (user_id,))
+        else:
+            c.execute('SELECT display_name, username FROM users WHERE user_id = ?', (user_id,))
+        
         result = c.fetchone()
         conn.close()
         
@@ -366,6 +396,7 @@ def calculate_xp_for_next_level(current_level):
     return int(base_xp * current_level * (scaling_factor ** (current_level - 1)))
 
 def update_user_xp(user_id, xp_gain, username=None, display_name=None):
+    global _current_db_type
     conn = get_db_connection()
     c = conn.cursor()
     
@@ -380,9 +411,15 @@ def update_user_xp(user_id, xp_gain, username=None, display_name=None):
     now_str = datetime.now().isoformat()
     
     # Update with username cache
-    c.execute('''UPDATE users SET xp = ?, level = ?, last_message = ?, total_messages = ?, 
-                 username = ?, display_name = ? WHERE user_id = ?''', 
-              (new_xp, new_level, now_str, total_messages + 1, username, display_name, user_id))
+    if _current_db_type == 'postgresql':
+        c.execute('''UPDATE users SET xp = %s, level = %s, last_message = %s, total_messages = %s, 
+                     username = %s, display_name = %s WHERE user_id = %s''', 
+                  (new_xp, new_level, now_str, total_messages + 1, username, display_name, user_id))
+    else:
+        c.execute('''UPDATE users SET xp = ?, level = ?, last_message = ?, total_messages = ?, 
+                     username = ?, display_name = ? WHERE user_id = ?''', 
+                  (new_xp, new_level, now_str, total_messages + 1, username, display_name, user_id))
+    
     conn.commit()
     conn.close()
     
@@ -660,9 +697,15 @@ async def xp_table_command(ctx, max_level: int = 10):
 @commands.cooldown(1, 30, commands.BucketType.guild)  # 1 use per 30 seconds per server
 async def leaderboard_command(ctx, limit: int = 10):
     """Show the XP leaderboard"""
-    conn = sqlite3.connect('bot_data.db')
+    global _current_db_type
+    conn = get_db_connection()
     c = conn.cursor()
-    c.execute('SELECT user_id, xp, level, username, display_name FROM users ORDER BY xp DESC LIMIT ?', (limit,))
+    
+    if _current_db_type == 'postgresql':
+        c.execute('SELECT user_id, xp, level, username, display_name FROM users ORDER BY xp DESC LIMIT %s', (limit,))
+    else:
+        c.execute('SELECT user_id, xp, level, username, display_name FROM users ORDER BY xp DESC LIMIT ?', (limit,))
+    
     top_users = c.fetchall()
     conn.close()
     
@@ -767,31 +810,56 @@ class Game:
         ]
 
     def get_game_data(self, user_id):
-        conn = sqlite3.connect('bot_data.db')
+        global _current_db_type
+        conn = get_db_connection()
         c = conn.cursor()
-        c.execute('SELECT * FROM game_data WHERE user_id = ?', (user_id,))
-        result = c.fetchone()
-        if not result:
-            c.execute('INSERT INTO game_data (user_id) VALUES (?)', (user_id,))
-            conn.commit()
-            today = datetime.now().date().isoformat()
-            result = (user_id, 100, 0, '{}', 'town', 1, 0, 0, today, '{}')
+        
+        if _current_db_type == 'postgresql':
+            c.execute('SELECT * FROM game_data WHERE user_id = %s', (user_id,))
+            result = c.fetchone()
+            if not result:
+                c.execute('INSERT INTO game_data (user_id) VALUES (%s)', (user_id,))
+                conn.commit()
+                today = datetime.now().date().isoformat()
+                result = (user_id, 100, 0, '{}', 'town', 1, 0, 0, today, '{}')
+        else:
+            c.execute('SELECT * FROM game_data WHERE user_id = ?', (user_id,))
+            result = c.fetchone()
+            if not result:
+                c.execute('INSERT INTO game_data (user_id) VALUES (?)', (user_id,))
+                conn.commit()
+                today = datetime.now().date().isoformat()
+                result = (user_id, 100, 0, '{}', 'town', 1, 0, 0, today, '{}')
+        
         conn.close()
         return result
 
     def update_game_data(self, user_id, health, gold, inventory, location, level, adventure_xp=None, monsters_defeated=None, daily_quest_progress=None):
-        conn = sqlite3.connect('bot_data.db')
+        global _current_db_type
+        conn = get_db_connection()
         c = conn.cursor()
         
         if adventure_xp is not None and monsters_defeated is not None and daily_quest_progress is not None:
-            c.execute('''UPDATE game_data SET health = ?, gold = ?, inventory = ?, 
-                         location = ?, level = ?, adventure_xp = ?, monsters_defeated = ?, daily_quest_progress = ?
-                         WHERE user_id = ?''',
-                      (health, gold, inventory, location, level, adventure_xp, monsters_defeated, daily_quest_progress, user_id))
+            if _current_db_type == 'postgresql':
+                c.execute('''UPDATE game_data SET health = %s, gold = %s, inventory = %s, 
+                             location = %s, level = %s, adventure_xp = %s, monsters_defeated = %s, daily_quest_progress = %s
+                             WHERE user_id = %s''',
+                          (health, gold, inventory, location, level, adventure_xp, monsters_defeated, daily_quest_progress, user_id))
+            else:
+                c.execute('''UPDATE game_data SET health = ?, gold = ?, inventory = ?, 
+                             location = ?, level = ?, adventure_xp = ?, monsters_defeated = ?, daily_quest_progress = ?
+                             WHERE user_id = ?''',
+                          (health, gold, inventory, location, level, adventure_xp, monsters_defeated, daily_quest_progress, user_id))
         else:
-            c.execute('''UPDATE game_data SET health = ?, gold = ?, inventory = ?, 
-                         location = ?, level = ? WHERE user_id = ?''',
-                      (health, gold, inventory, location, level, user_id))
+            if _current_db_type == 'postgresql':
+                c.execute('''UPDATE game_data SET health = %s, gold = %s, inventory = %s, 
+                             location = %s, level = %s WHERE user_id = %s''',
+                          (health, gold, inventory, location, level, user_id))
+            else:
+                c.execute('''UPDATE game_data SET health = ?, gold = ?, inventory = ?, 
+                             location = ?, level = ? WHERE user_id = ?''',
+                          (health, gold, inventory, location, level, user_id))
+        
         conn.commit()
         conn.close()
 
@@ -806,6 +874,7 @@ class Game:
         return quest
 
     def update_quest_progress(self, user_id, quest_type, amount=1):
+        global _current_db_type
         user_data = self.get_game_data(user_id)
         today = datetime.now().date().isoformat()
         last_quest_date = user_data[8] if len(user_data) > 8 else today
@@ -824,10 +893,16 @@ class Game:
         progress[quest_type] = progress.get(quest_type, 0) + amount
         
         # Update database
-        conn = sqlite3.connect('bot_data.db')
+        conn = get_db_connection()
         c = conn.cursor()
-        c.execute('UPDATE game_data SET last_daily_quest = ?, daily_quest_progress = ? WHERE user_id = ?',
-                  (today, json.dumps(progress), user_id))
+        
+        if _current_db_type == 'postgresql':
+            c.execute('UPDATE game_data SET last_daily_quest = %s, daily_quest_progress = %s WHERE user_id = %s',
+                      (today, json.dumps(progress), user_id))
+        else:
+            c.execute('UPDATE game_data SET last_daily_quest = ?, daily_quest_progress = ? WHERE user_id = ?',
+                      (today, json.dumps(progress), user_id))
+        
         conn.commit()
         conn.close()
         
@@ -1184,19 +1259,29 @@ async def adventure_leaderboard_command(ctx, category='gold'):
         await ctx.send("Adventure leaderboards are currently disabled.")
         return
     
-    conn = sqlite3.connect('bot_data.db')
+    global _current_db_type
+    conn = get_db_connection()
     c = conn.cursor()
     
     if category == 'gold':
-        c.execute('SELECT user_id, gold FROM game_data WHERE gold > 0 ORDER BY gold DESC LIMIT 10')
+        if _current_db_type == 'postgresql':
+            c.execute('SELECT user_id, gold FROM game_data WHERE gold > 0 ORDER BY gold DESC LIMIT 10')
+        else:
+            c.execute('SELECT user_id, gold FROM game_data WHERE gold > 0 ORDER BY gold DESC LIMIT 10')
         title = "💰 Adventure Gold Leaderboard"
         icon = "💰"
     elif category == 'level':
-        c.execute('SELECT user_id, level, adventure_xp FROM game_data WHERE adventure_xp > 0 ORDER BY level DESC, adventure_xp DESC LIMIT 10')
+        if _current_db_type == 'postgresql':
+            c.execute('SELECT user_id, level, adventure_xp FROM game_data WHERE adventure_xp > 0 ORDER BY level DESC, adventure_xp DESC LIMIT 10')
+        else:
+            c.execute('SELECT user_id, level, adventure_xp FROM game_data WHERE adventure_xp > 0 ORDER BY level DESC, adventure_xp DESC LIMIT 10')
         title = "⭐ Adventure Level Leaderboard" 
         icon = "⭐"
     elif category == 'monsters':
-        c.execute('SELECT user_id, monsters_defeated FROM game_data WHERE monsters_defeated > 0 ORDER BY monsters_defeated DESC LIMIT 10')
+        if _current_db_type == 'postgresql':
+            c.execute('SELECT user_id, monsters_defeated FROM game_data WHERE monsters_defeated > 0 ORDER BY monsters_defeated DESC LIMIT 10')
+        else:
+            c.execute('SELECT user_id, monsters_defeated FROM game_data WHERE monsters_defeated > 0 ORDER BY monsters_defeated DESC LIMIT 10')
         title = "⚔️ Monster Hunter Leaderboard"
         icon = "⚔️"
     else:

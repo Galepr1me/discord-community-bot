@@ -17,8 +17,12 @@ intents.message_content = True
 bot = commands.Bot(command_prefix='!', intents=intents, help_command=None)
 
 # Database setup
+# Global variable to track database type
+_current_db_type = 'sqlite'
+
 def get_db_connection():
     """Get database connection - PostgreSQL for cloud with DATABASE_URL, SQLite otherwise"""
+    global _current_db_type
     database_url = os.getenv('DATABASE_URL')
     
     if database_url and database_url.startswith('postgresql://'):
@@ -34,8 +38,7 @@ def get_db_connection():
                 sslmode='require'
             )
             print(f"✅ Successfully connected to PostgreSQL database")
-            # Mark connection as PostgreSQL for parameter conversion
-            conn._db_type = 'postgresql'
+            _current_db_type = 'postgresql'
             return conn
             
         except ImportError:
@@ -43,33 +46,31 @@ def get_db_connection():
             print("🔄 Falling back to SQLite...")
             db_path = get_db_path()
             print(f"🗄️ Using SQLite database at: {db_path}")
-            conn = sqlite3.connect(db_path)
-            conn._db_type = 'sqlite'
-            return conn
+            _current_db_type = 'sqlite'
+            return sqlite3.connect(db_path)
             
         except Exception as e:
             print(f"❌ PostgreSQL connection failed: {e}")
             print("🔄 Falling back to SQLite...")
             db_path = get_db_path()
             print(f"🗄️ Using SQLite database at: {db_path}")
-            conn = sqlite3.connect(db_path)
-            conn._db_type = 'sqlite'
-            return conn
+            _current_db_type = 'sqlite'
+            return sqlite3.connect(db_path)
     else:
         # Use SQLite for local development
         db_path = get_db_path()
         print(f"🗄️ Using SQLite database at: {db_path}")
-        conn = sqlite3.connect(db_path)
-        conn._db_type = 'sqlite'
-        return conn
+        _current_db_type = 'sqlite'
+        return sqlite3.connect(db_path)
 
-def execute_db_query(query, params=None):
+def execute_query_with_conversion(query, params=None):
     """Execute a database query with automatic parameter conversion"""
+    global _current_db_type
     conn = get_db_connection()
     
     try:
         # Convert SQLite placeholders (?) to PostgreSQL placeholders (%s) if needed
-        if hasattr(conn, '_db_type') and conn._db_type == 'postgresql':
+        if _current_db_type == 'postgresql':
             converted_query = query.replace('?', '%s')
         else:
             converted_query = query

@@ -1,5 +1,6 @@
 import discord
 from discord.ext import commands, tasks
+from discord import app_commands
 import sqlite3
 import random
 import asyncio
@@ -1043,42 +1044,54 @@ def format_card_display(card):
     border_char = rarity_info['border']
     color = rarity_info['color']
     
-    # Create the card display
+    # Create the card display with fixed width
     card_lines = card['ascii'].split('\n')
-    max_width = max(len(line) for line in card_lines) + 4
+    
+    # Set a consistent width that works well in Discord
+    card_width = 25
     
     # Top border
-    display = f"╔{'═' * (max_width - 2)}╗\n"
+    display = f"╔{'═' * (card_width - 2)}╗\n"
     
-    # Card name
-    name_line = f"║ {card['name'].center(max_width - 4)} ║\n"
+    # Card name (truncate if too long)
+    card_name = card['name'][:card_width - 4] if len(card['name']) > card_width - 4 else card['name']
+    name_line = f"║ {card_name.center(card_width - 4)} ║\n"
     display += name_line
     
     # Separator
-    display += f"║{' ' * (max_width - 2)}║\n"
+    display += f"║{' ' * (card_width - 2)}║\n"
     
-    # ASCII art
+    # ASCII art (truncate lines if too long)
     for line in card_lines:
-        padded_line = line.center(max_width - 4)
+        if len(line) > card_width - 4:
+            line = line[:card_width - 4]
+        padded_line = line.center(card_width - 4)
         display += f"║ {padded_line} ║\n"
     
     # Separator
-    display += f"║{' ' * (max_width - 2)}║\n"
+    display += f"║{' ' * (card_width - 2)}║\n"
     
-    # Stats
-    stats_line = f"ATK: {card['attack']}  HP: {card['health']}"
-    cost_element = f"COST: {card['cost']}  {element_info['emoji']}{element.upper()}"
+    # Stats (ensure they fit)
+    stats_line = f"ATK:{card['attack']} HP:{card['health']}"
+    if len(stats_line) > card_width - 4:
+        stats_line = f"A:{card['attack']} H:{card['health']}"
+    display += f"║ {stats_line.ljust(card_width - 4)} ║\n"
     
-    display += f"║ {stats_line.ljust(max_width - 4)} ║\n"
-    display += f"║ {cost_element.ljust(max_width - 4)} ║\n"
+    # Cost and element (ensure they fit)
+    cost_element = f"COST:{card['cost']} {element_info['emoji']}{element[:3].upper()}"
+    if len(cost_element) > card_width - 4:
+        cost_element = f"C:{card['cost']} {element_info['emoji']}{element[:2].upper()}"
+    display += f"║ {cost_element.ljust(card_width - 4)} ║\n"
     
-    # Ability (if not None)
+    # Ability (if not None, truncate to fit)
     if card['ability'] != 'None':
-        ability_line = card['ability'][:max_width - 4]  # Truncate if too long
-        display += f"║ {ability_line.ljust(max_width - 4)} ║\n"
+        ability_line = card['ability']
+        if len(ability_line) > card_width - 4:
+            ability_line = ability_line[:card_width - 7] + "..."
+        display += f"║ {ability_line.ljust(card_width - 4)} ║\n"
     
     # Bottom border
-    display += f"╚{'═' * (max_width - 2)}╝"
+    display += f"╚{'═' * (card_width - 2)}╝"
     
     return display, color
 
@@ -1310,6 +1323,269 @@ async def pack_command(ctx):
     
     await ctx.send(embed=embed)
 
+# SLASH COMMANDS - Card Game
+@bot.tree.command(name='pack', description='Open a card pack and add cards to your collection')
+async def pack_slash(interaction: discord.Interaction):
+    """Open a card pack"""
+    if get_config('game_enabled') != 'True':
+        await interaction.response.send_message("The card game is currently disabled.", ephemeral=True)
+        return
+    
+    # Generate 3 random cards for the pack
+    pack_cards = []
+    
+    for _ in range(3):
+        # Determine rarity based on drop rates
+        roll = random.randint(1, 100)
+        cumulative = 0
+        selected_rarity = 'common'
+        
+        for rarity, info in card_game.rarities.items():
+            cumulative += info['drop_rate']
+            if roll <= cumulative:
+                selected_rarity = rarity
+                break
+        
+        # Get random card of selected rarity
+        rarity_cards = [card for card in card_game.card_library if card['rarity'] == selected_rarity]
+        if rarity_cards:
+            selected_card = random.choice(rarity_cards)
+            pack_cards.append(selected_card)
+            
+            # Add card to user's collection in database
+            card_data = get_card_by_name(selected_card['name'])
+            if card_data:
+                card_id = card_data[0]  # First column is card_id
+                add_card_to_collection(interaction.user.id, card_id, 1)
+    
+    # Display the pack opening
+    embed = discord.Embed(
+        title="🎁 Card Pack Opened!", 
+        description="You received 3 new cards and they've been added to your collection:",
+        color=0xffd700
+    )
+    
+    for i, card in enumerate(pack_cards, 1):
+        rarity_info = card_game.rarities[card['rarity']]
+        element_info = card_game.elements[card['element']]
+        
+        rarity_text = card['rarity'].title()
+        if card['rarity'] in ['epic', 'legendary', 'mythic']:
+            rarity_text = f"**{rarity_text}**"  # Bold for rare cards
+        
+        embed.add_field(
+            name=f"Card {i}: {card['name']}", 
+            value=f"{element_info['emoji']} {card['element'].title()} • {rarity_text}\n"
+                  f"⚔️ {card['attack']} ATK • ❤️ {card['health']} HP • 💎 {card['cost']} Cost",
+            inline=False
+        )
+    
+    embed.set_footer(text="Use /cards to view your full collection!")
+    
+    await interaction.response.send_message(embed=embed)
+
+@bot.tree.command(name='cards', description='View your card collection')
+@app_commands.describe(page='Page number to view (default: 1)')
+async def cards_slash(interaction: discord.Interaction, page: int = 1):
+    """View your card collection"""
+    if get_config('game_enabled') != 'True':
+        await interaction.response.send_message("The card game is currently disabled.", ephemeral=True)
+        return
+    
+    # Get user's collection from database
+    collection = get_user_collection(interaction.user.id)
+    
+    if not collection:
+        embed = discord.Embed(
+            title="🃏 Your Card Collection", 
+            description="Your collection is empty! Use `/pack` to get your first cards.",
+            color=0x95a5a6
+        )
+        embed.add_field(
+            name="Getting Started", 
+            value="🎁 Use `/pack` to open card packs\n🎴 Collect all 20 unique cards\n⚔️ Battles coming soon!",
+            inline=False
+        )
+        await interaction.response.send_message(embed=embed)
+        return
+    
+    # Calculate collection stats
+    total_cards = sum(card[9] for card in collection)  # quantity is index 9
+    unique_cards = len(collection)
+    rare_cards = sum(1 for card in collection if card[3] in ['rare', 'epic', 'legendary', 'mythic'])
+    
+    # Pagination - 5 cards per page
+    cards_per_page = 5
+    total_pages = (len(collection) + cards_per_page - 1) // cards_per_page
+    page = max(1, min(page, total_pages))
+    
+    start_idx = (page - 1) * cards_per_page
+    end_idx = start_idx + cards_per_page
+    page_cards = collection[start_idx:end_idx]
+    
+    embed = discord.Embed(
+        title="🃏 Your Card Collection", 
+        description=f"**Page {page}/{total_pages}** • Showing {len(page_cards)} cards",
+        color=0x3498db
+    )
+    
+    # Add collection stats
+    embed.add_field(
+        name="📊 Collection Stats", 
+        value=f"📦 **{total_cards}** total cards\n🎴 **{unique_cards}**/20 unique cards\n💎 **{rare_cards}** rare+ cards", 
+        inline=True
+    )
+    
+    # Add rarity breakdown
+    rarity_counts = {}
+    for card in collection:
+        rarity = card[3]  # rarity is index 3
+        rarity_counts[rarity] = rarity_counts.get(rarity, 0) + card[9]  # quantity
+    
+    rarity_text = ""
+    for rarity in ['common', 'rare', 'epic', 'legendary', 'mythic']:
+        if rarity in rarity_counts:
+            emoji = {'common': '⚪', 'rare': '🔵', 'epic': '🟣', 'legendary': '🟠', 'mythic': '🟡'}[rarity]
+            rarity_text += f"{emoji} {rarity_counts[rarity]} {rarity.title()}\n"
+    
+    if rarity_text:
+        embed.add_field(name="🌟 By Rarity", value=rarity_text, inline=True)
+    
+    # Add cards on this page
+    for card_data in page_cards:
+        card_id, name, element, rarity, attack, health, cost, ability, ascii_art, quantity = card_data
+        
+        element_info = card_game.elements[element]
+        rarity_info = card_game.rarities[rarity]
+        
+        quantity_text = f" x{quantity}" if quantity > 1 else ""
+        
+        embed.add_field(
+            name=f"{name}{quantity_text}", 
+            value=f"{element_info['emoji']} {element.title()} • {rarity.title()}\n"
+                  f"⚔️ {attack} ATK • ❤️ {health} HP • 💎 {cost} Cost\n"
+                  f"🎯 {ability if ability != 'None' else 'No special ability'}",
+            inline=False
+        )
+    
+    # Add navigation footer
+    footer_text = "Use /pack to get more cards"
+    if total_pages > 1:
+        footer_text += f" • Use /cards page:{page + 1} for next page" if page < total_pages else ""
+        footer_text += f" • Use /cards page:{page - 1} for previous page" if page > 1 else ""
+    
+    embed.set_footer(text=footer_text)
+    
+    await interaction.response.send_message(embed=embed)
+
+@bot.tree.command(name='view', description='View a specific card in full ASCII art')
+@app_commands.describe(card_name='Name of the card to view')
+async def view_slash(interaction: discord.Interaction, card_name: str):
+    """View a specific card in full ASCII art format"""
+    if get_config('game_enabled') != 'True':
+        await interaction.response.send_message("The card game is currently disabled.", ephemeral=True)
+        return
+    
+    # Find the card in the library
+    card = None
+    for library_card in card_game.card_library:
+        if library_card['name'].lower() == card_name.lower():
+            card = library_card
+            break
+    
+    if not card:
+        # Show available cards
+        available_cards = [c['name'] for c in card_game.card_library]
+        embed = discord.Embed(
+            title="❌ Card Not Found", 
+            description=f"Could not find card: **{card_name}**",
+            color=0xff0000
+        )
+        
+        # Show some example cards
+        examples = available_cards[:10]  # First 10 cards
+        embed.add_field(
+            name="Available Cards (examples)", 
+            value="\n".join(f"• {name}" for name in examples),
+            inline=False
+        )
+        
+        embed.set_footer(text="Use exact card names • Case insensitive")
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+        return
+    
+    # Display the card with full ASCII art
+    card_display, color = format_card_display(card)
+    
+    embed = discord.Embed(
+        title=f"🃏 {card['name']}", 
+        description=f"```\n{card_display}\n```",
+        color=color
+    )
+    
+    # Add detailed stats
+    element_info = card_game.elements[card['element']]
+    rarity_info = card_game.rarities[card['rarity']]
+    
+    embed.add_field(
+        name="📊 Card Details", 
+        value=(
+            f"{element_info['emoji']} **Element:** {card['element'].title()}\n"
+            f"💎 **Rarity:** {card['rarity'].title()}\n"
+            f"⚔️ **Attack:** {card['attack']}\n"
+            f"❤️ **Health:** {card['health']}\n"
+            f"💰 **Cost:** {card['cost']}\n"
+            f"🎯 **Ability:** {card['ability']}"
+        ),
+        inline=True
+    )
+    
+    # Add element advantage info
+    beats_element = card_game.elements[card['element']]['beats']
+    beats_info = card_game.elements[beats_element]
+    
+    embed.add_field(
+        name="⚡ Element Advantage", 
+        value=f"{element_info['emoji']} **{card['element'].title()}** beats {beats_info['emoji']} **{beats_element.title()}**",
+        inline=True
+    )
+    
+    embed.set_footer(text="Use /pack to collect cards • Use /cards to view your collection")
+    
+    await interaction.response.send_message(embed=embed)
+
+@bot.tree.command(name='level', description='Check your level or another user\'s level')
+@app_commands.describe(user='User to check level for (optional)')
+async def level_slash(interaction: discord.Interaction, user: discord.Member = None):
+    """Check your level or another user's level"""
+    target = user or interaction.user
+    user_data = get_user_data(target.id)
+    
+    current_level = user_data[2]
+    current_xp = user_data[1]
+    
+    embed = discord.Embed(title=f"{target.display_name}'s Level", color=0x3498db)
+    embed.add_field(name="Level", value=current_level, inline=True)
+    embed.add_field(name="Total XP", value=f"{current_xp:,}", inline=True)
+    embed.add_field(name="Messages", value=user_data[4], inline=True)
+    
+    # Calculate progress to next level
+    current_level_xp = calculate_xp_for_level(current_level)
+    next_level_xp = calculate_xp_for_level(current_level + 1)
+    xp_needed_for_next = calculate_xp_for_next_level(current_level)
+    progress = current_xp - current_level_xp
+    
+    embed.add_field(name="Progress to Next Level", 
+                   value=f"{progress:,}/{xp_needed_for_next:,} XP", inline=False)
+    
+    # Add a progress bar
+    progress_percentage = min(100, (progress / xp_needed_for_next) * 100)
+    progress_bar = "█" * int(progress_percentage // 10) + "░" * (10 - int(progress_percentage // 10))
+    embed.add_field(name="Progress Bar", 
+                   value=f"`{progress_bar}` {progress_percentage:.1f}%", inline=False)
+    
+    await interaction.response.send_message(embed=embed)
+
 # Placeholder commands for removed adventure game features
 @bot.command(name='adventure')
 async def adventure_command(ctx):
@@ -1322,7 +1598,7 @@ async def adventure_command(ctx):
     
     embed.add_field(
         name="🃏 Try the New Card Game!", 
-        value="🔹 `!cards` - View your collection\n🔹 `!pack` - Open card packs\n🔹 More features coming soon!",
+        value="🔹 `/cards` - View your collection\n🔹 `/pack` - Open card packs\n🔹 More features coming soon!",
         inline=False
     )
     
@@ -1334,6 +1610,13 @@ async def adventure_command(ctx):
 async def on_ready():
     print(f'{bot.user} has connected to Discord!')
     init_db()
+    
+    # Sync slash commands
+    try:
+        synced = await bot.tree.sync()
+        print(f"✅ Synced {len(synced)} slash command(s)")
+    except Exception as e:
+        print(f"❌ Failed to sync slash commands: {e}")
 
 @bot.event
 async def on_member_join(member):

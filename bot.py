@@ -1148,12 +1148,9 @@ def claim_daily_reward(user_id):
                          WHERE user_id = ?''',
                       (today, new_streak, total_claims + 1, new_best_streak, user_id))
         
-        # Add cards to collection
-        for card_name in rewards['cards']:
-            card_data = get_card_by_name(card_name)
-            if card_data:
-                card_id = card_data[0]
-                add_card_to_collection(user_id, card_id, 1)
+        # Add pack tokens to user's inventory
+        if rewards['pack_tokens'] > 0:
+            add_pack_tokens(user_id, 'standard', rewards['pack_tokens'])
         
         conn.commit()
         
@@ -1172,66 +1169,131 @@ def claim_daily_reward(user_id):
         conn.close()
 
 def generate_daily_rewards(streak):
-    """Generate daily rewards based on streak"""
-    rewards = {'cards': [], 'bonus': None}
+    """Generate daily rewards based on streak - now gives pack tokens instead of cards"""
+    rewards = {'pack_tokens': 0, 'bonus': None}
     
-    # Base reward: 1 card
+    # Base reward: pack tokens
     if streak < 7:
-        # Days 1-6: 1 random card
-        rarity_roll = random.randint(1, 100)
-        if rarity_roll <= 70:
-            selected_rarity = 'common'
-        elif rarity_roll <= 90:
-            selected_rarity = 'rare'
-        elif rarity_roll <= 98:
-            selected_rarity = 'epic'
-        else:
-            selected_rarity = 'legendary'
-        
-        rarity_cards = [card for card in card_game.card_library if card['rarity'] == selected_rarity]
-        if rarity_cards:
-            selected_card = random.choice(rarity_cards)
-            rewards['cards'].append(selected_card['name'])
+        # Days 1-6: 1 pack token
+        rewards['pack_tokens'] = 1
     
     elif streak == 7:
-        # Day 7: 2 cards + 1 guaranteed rare
-        rewards['cards'].append(random.choice([card for card in card_game.card_library if card['rarity'] == 'common'])['name'])
-        rewards['cards'].append(random.choice([card for card in card_game.card_library if card['rarity'] == 'rare'])['name'])
+        # Day 7: 2 pack tokens
+        rewards['pack_tokens'] = 2
         rewards['bonus'] = '🎉 Weekly Bonus!'
     
     elif streak == 30:
-        # Day 30: Special legendary card
-        legendary_cards = [card for card in card_game.card_library if card['rarity'] == 'legendary']
-        if legendary_cards:
-            rewards['cards'].append(random.choice(legendary_cards)['name'])
+        # Day 30: 3 pack tokens
+        rewards['pack_tokens'] = 3
         rewards['bonus'] = '🏆 Monthly Legendary!'
     
     elif streak % 7 == 0:
-        # Every 7 days after first week: 2 cards
-        rewards['cards'].append(random.choice([card for card in card_game.card_library if card['rarity'] == 'common'])['name'])
-        rewards['cards'].append(random.choice([card for card in card_game.card_library if card['rarity'] == 'rare'])['name'])
+        # Every 7 days after first week: 2 pack tokens
+        rewards['pack_tokens'] = 2
         rewards['bonus'] = f'🔥 {streak} Day Streak!'
     
     else:
-        # Regular days: 1 card with better odds for higher streaks
-        rarity_roll = random.randint(1, 100)
-        streak_bonus = min(streak * 2, 20)  # Up to 20% bonus
+        # Regular days: 1 pack token with streak bonus
+        base_tokens = 1
+        if streak >= 14:
+            # After 2 weeks, small chance for bonus token
+            bonus_chance = min(streak, 30)  # Up to 30% chance
+            if random.randint(1, 100) <= bonus_chance:
+                base_tokens += 1
+                rewards['bonus'] = '🎁 Bonus Token!'
         
-        if rarity_roll <= (60 - streak_bonus):
-            selected_rarity = 'common'
-        elif rarity_roll <= (85 - streak_bonus // 2):
-            selected_rarity = 'rare'
-        elif rarity_roll <= (96 - streak_bonus // 4):
-            selected_rarity = 'epic'
-        else:
-            selected_rarity = 'legendary'
-        
-        rarity_cards = [card for card in card_game.card_library if card['rarity'] == selected_rarity]
-        if rarity_cards:
-            selected_card = random.choice(rarity_cards)
-            rewards['cards'].append(selected_card['name'])
+        rewards['pack_tokens'] = base_tokens
     
     return rewards
+
+# Pack Token Functions
+def add_pack_tokens(user_id, pack_type='standard', quantity=1):
+    """Add pack tokens to user's inventory"""
+    global _current_db_type
+    conn = get_db_connection()
+    c = conn.cursor()
+    
+    try:
+        if _current_db_type == 'postgresql':
+            c.execute('''INSERT INTO user_packs (user_id, pack_type, quantity) 
+                         VALUES (%s, %s, %s) 
+                         ON CONFLICT (user_id, pack_type) 
+                         DO UPDATE SET quantity = user_packs.quantity + %s''',
+                      (user_id, pack_type, quantity, quantity))
+        else:
+            # SQLite approach
+            c.execute('SELECT quantity FROM user_packs WHERE user_id = ? AND pack_type = ?', (user_id, pack_type))
+            existing = c.fetchone()
+            
+            if existing:
+                new_quantity = existing[0] + quantity
+                c.execute('UPDATE user_packs SET quantity = ? WHERE user_id = ? AND pack_type = ?',
+                         (new_quantity, user_id, pack_type))
+            else:
+                c.execute('INSERT INTO user_packs (user_id, pack_type, quantity) VALUES (?, ?, ?)',
+                         (user_id, pack_type, quantity))
+        
+        conn.commit()
+        return True
+    except Exception as e:
+        print(f"Error adding pack tokens: {e}")
+        return False
+    finally:
+        conn.close()
+
+def get_user_pack_tokens(user_id):
+    """Get user's pack token inventory"""
+    global _current_db_type
+    conn = get_db_connection()
+    c = conn.cursor()
+    
+    try:
+        if _current_db_type == 'postgresql':
+            c.execute('SELECT pack_type, quantity FROM user_packs WHERE user_id = %s AND quantity > 0', (user_id,))
+        else:
+            c.execute('SELECT pack_type, quantity FROM user_packs WHERE user_id = ? AND quantity > 0', (user_id,))
+        
+        results = c.fetchall()
+        return {pack_type: quantity for pack_type, quantity in results}
+    except Exception as e:
+        print(f"Error getting pack tokens: {e}")
+        return {}
+    finally:
+        conn.close()
+
+def consume_pack_token(user_id, pack_type='standard'):
+    """Consume one pack token and return success"""
+    global _current_db_type
+    conn = get_db_connection()
+    c = conn.cursor()
+    
+    try:
+        # Check if user has tokens
+        if _current_db_type == 'postgresql':
+            c.execute('SELECT quantity FROM user_packs WHERE user_id = %s AND pack_type = %s', (user_id, pack_type))
+        else:
+            c.execute('SELECT quantity FROM user_packs WHERE user_id = ? AND pack_type = ?', (user_id, pack_type))
+        
+        result = c.fetchone()
+        if not result or result[0] <= 0:
+            return False
+        
+        # Consume one token
+        new_quantity = result[0] - 1
+        if _current_db_type == 'postgresql':
+            c.execute('UPDATE user_packs SET quantity = %s WHERE user_id = %s AND pack_type = %s',
+                     (new_quantity, user_id, pack_type))
+        else:
+            c.execute('UPDATE user_packs SET quantity = ? WHERE user_id = ? AND pack_type = ?',
+                     (new_quantity, user_id, pack_type))
+        
+        conn.commit()
+        return True
+    except Exception as e:
+        print(f"Error consuming pack token: {e}")
+        return False
+    finally:
+        conn.close()
 
 # Card Storage Functions
 def add_card_to_collection(user_id, card_id, quantity=1):
@@ -1550,11 +1612,29 @@ async def view_card_command(ctx, *, card_name):
     await ctx.send(embed=embed)
 
 @bot.command(name='pack')
-@commands.cooldown(1, 300, commands.BucketType.user)  # 1 pack per 5 minutes per user
 async def pack_command(ctx):
-    """Open a card pack"""
+    """Open a card pack using pack tokens"""
     if get_config('game_enabled') != 'True':
         await ctx.send("The card game is currently disabled.")
+        return
+    
+    # Check if user has pack tokens
+    if not consume_pack_token(ctx.author.id, 'standard'):
+        # Get user's current pack tokens to show in error message
+        user_tokens = get_user_pack_tokens(ctx.author.id)
+        token_count = user_tokens.get('standard', 0)
+        
+        embed = discord.Embed(
+            title="❌ No Pack Tokens!",
+            description=f"You need pack tokens to open packs!\n\n🎫 **Current Tokens:** {token_count}",
+            color=0xff0000
+        )
+        embed.add_field(
+            name="How to Get Pack Tokens",
+            value="🎁 Use `/daily` to claim daily pack tokens\n⏰ Come back every day for more tokens!",
+            inline=False
+        )
+        await ctx.send(embed=embed)
         return
     
     # Generate 3 random cards for the pack
@@ -1584,10 +1664,13 @@ async def pack_command(ctx):
                 card_id = card_data[0]  # First column is card_id
                 add_card_to_collection(ctx.author.id, card_id, 1)
     
+    # Get remaining tokens after consumption
+    remaining_tokens = get_user_pack_tokens(ctx.author.id).get('standard', 0)
+    
     # Display the pack opening
     embed = discord.Embed(
         title="🎁 Card Pack Opened!", 
-        description="You received 3 new cards and they've been added to your collection:",
+        description=f"You used 1 pack token and received 3 new cards!\n🎫 **Remaining Tokens:** {remaining_tokens}",
         color=0xffd700
     )
     
@@ -1606,17 +1689,35 @@ async def pack_command(ctx):
             inline=False
         )
     
-    embed.set_footer(text="Use !cards to view your full collection!")
+    embed.set_footer(text="Use !cards to view your full collection • Use /daily for more tokens!")
     
     await ctx.send(embed=embed)
 
 # SLASH COMMANDS - Card Game
-@bot.tree.command(name='pack', description='Open a card pack and add cards to your collection')
-@app_commands.checks.cooldown(1, 300, key=lambda i: i.user.id)  # 1 pack per 5 minutes per user
+@bot.tree.command(name='pack', description='Open a card pack using pack tokens')
 async def pack_slash(interaction: discord.Interaction):
-    """Open a card pack"""
+    """Open a card pack using pack tokens"""
     if get_config('game_enabled') != 'True':
         await interaction.response.send_message("The card game is currently disabled.", ephemeral=True)
+        return
+    
+    # Check if user has pack tokens
+    if not consume_pack_token(interaction.user.id, 'standard'):
+        # Get user's current pack tokens to show in error message
+        user_tokens = get_user_pack_tokens(interaction.user.id)
+        token_count = user_tokens.get('standard', 0)
+        
+        embed = discord.Embed(
+            title="❌ No Pack Tokens!",
+            description=f"You need pack tokens to open packs!\n\n🎫 **Current Tokens:** {token_count}",
+            color=0xff0000
+        )
+        embed.add_field(
+            name="How to Get Pack Tokens",
+            value="🎁 Use `/daily` to claim daily pack tokens\n⏰ Come back every day for more tokens!",
+            inline=False
+        )
+        await interaction.response.send_message(embed=embed, ephemeral=True)
         return
     
     # Generate 3 random cards for the pack
@@ -1646,10 +1747,13 @@ async def pack_slash(interaction: discord.Interaction):
                 card_id = card_data[0]  # First column is card_id
                 add_card_to_collection(interaction.user.id, card_id, 1)
     
+    # Get remaining tokens after consumption
+    remaining_tokens = get_user_pack_tokens(interaction.user.id).get('standard', 0)
+    
     # Display the pack opening
     embed = discord.Embed(
         title="🎁 Card Pack Opened!", 
-        description="You received 3 new cards and they've been added to your collection:",
+        description=f"You used 1 pack token and received 3 new cards!\n🎫 **Remaining Tokens:** {remaining_tokens}",
         color=0xffd700
     )
     
@@ -1668,7 +1772,7 @@ async def pack_slash(interaction: discord.Interaction):
             inline=False
         )
     
-    embed.set_footer(text="Use /cards to view your full collection!")
+    embed.set_footer(text="Use /cards to view your full collection • Use /daily for more tokens!")
     
     await interaction.response.send_message(embed=embed)
 
@@ -1881,28 +1985,17 @@ async def daily_slash(interaction: discord.Interaction):
         color=0x00ff00
     )
     
-    # Add cards received
-    for i, card_name in enumerate(rewards['cards'], 1):
-        # Get card details
-        card = None
-        for library_card in card_game.card_library:
-            if library_card['name'] == card_name:
-                card = library_card
-                break
-        
-        if card:
-            element_info = card_game.elements[card['element']]
-            rarity_info = card_game.rarities[card['rarity']]
-            
-            rarity_text = card['rarity'].title()
-            if card['rarity'] in ['epic', 'legendary']:
-                rarity_text = f"**{rarity_text}**"
-            
-            embed.add_field(
-                name=f"Card {i}: {card['name']}",
-                value=f"{element_info['emoji']} {card['element'].title()} • {rarity_text}\n⚔️ {card['attack']} ATK • ❤️ {card['health']} HP",
-                inline=len(rewards['cards']) == 1
-            )
+    # Add pack tokens received
+    pack_tokens = rewards['pack_tokens']
+    token_text = f"🎫 **{pack_tokens} Pack Token{'s' if pack_tokens != 1 else ''}**"
+    if rewards.get('bonus'):
+        token_text += f"\n{rewards['bonus']}"
+    
+    embed.add_field(
+        name="🎁 Reward Received",
+        value=token_text,
+        inline=False
+    )
     
     # Add streak info
     streak_info = f"🔥 **Current Streak:** {streak} days\n🏆 **Best Streak:** {reward_result['best_streak']} days\n📅 **Total Claims:** {reward_result['total_claims']}"
@@ -2367,6 +2460,115 @@ async def config_slash(interaction: discord.Interaction, action: str, key: str =
             inline=False
         )
         await interaction.response.send_message(embed=embed, ephemeral=True)
+
+# Admin Commands
+@bot.tree.command(name='wipe_cards', description='Wipe all user card data (Admin only)')
+@app_commands.default_permissions(administrator=True)
+async def wipe_cards_slash(interaction: discord.Interaction):
+    """Wipe all user card data - Admin only"""
+    global _current_db_type
+    
+    # Confirmation embed
+    embed = discord.Embed(
+        title="⚠️ DANGER: Wipe All Card Data",
+        description="This will permanently delete ALL user card collections, pack tokens, and daily reward streaks!",
+        color=0xff0000
+    )
+    
+    embed.add_field(
+        name="🗑️ What will be deleted:",
+        value=(
+            "• All user card collections\n"
+            "• All pack tokens\n"
+            "• All daily reward streaks\n"
+            "• All card-related progress"
+        ),
+        inline=False
+    )
+    
+    embed.add_field(
+        name="⚠️ This action cannot be undone!",
+        value="Type `CONFIRM WIPE` in the next message to proceed.",
+        inline=False
+    )
+    
+    await interaction.response.send_message(embed=embed, ephemeral=True)
+    
+    # Wait for confirmation
+    def check(message):
+        return (message.author.id == interaction.user.id and 
+                message.content == "CONFIRM WIPE" and
+                message.channel == interaction.channel)
+    
+    try:
+        confirmation = await bot.wait_for('message', timeout=30.0, check=check)
+        
+        # Perform the wipe
+        conn = get_db_connection()
+        c = conn.cursor()
+        
+        try:
+            if _current_db_type == 'postgresql':
+                c.execute('DELETE FROM user_cards')
+                c.execute('DELETE FROM user_packs')
+                c.execute('DELETE FROM daily_rewards')
+            else:
+                c.execute('DELETE FROM user_cards')
+                c.execute('DELETE FROM user_packs')
+                c.execute('DELETE FROM daily_rewards')
+            
+            conn.commit()
+            
+            # Get counts for confirmation
+            c.execute('SELECT COUNT(*) FROM user_cards')
+            cards_remaining = c.fetchone()[0]
+            c.execute('SELECT COUNT(*) FROM user_packs')
+            packs_remaining = c.fetchone()[0]
+            c.execute('SELECT COUNT(*) FROM daily_rewards')
+            rewards_remaining = c.fetchone()[0]
+            
+            conn.close()
+            
+            success_embed = discord.Embed(
+                title="✅ Card Data Wiped Successfully",
+                description="All user card data has been permanently deleted.",
+                color=0x00ff00
+            )
+            
+            success_embed.add_field(
+                name="📊 Cleanup Results",
+                value=(
+                    f"• User cards remaining: {cards_remaining}\n"
+                    f"• Pack tokens remaining: {packs_remaining}\n"
+                    f"• Daily rewards remaining: {rewards_remaining}"
+                ),
+                inline=False
+            )
+            
+            success_embed.add_field(
+                name="🔄 Fresh Start",
+                value="Users can now start collecting cards from scratch!",
+                inline=False
+            )
+            
+            await confirmation.reply(embed=success_embed)
+            
+        except Exception as e:
+            conn.close()
+            error_embed = discord.Embed(
+                title="❌ Wipe Failed",
+                description=f"An error occurred while wiping data: {str(e)}",
+                color=0xff0000
+            )
+            await confirmation.reply(embed=error_embed)
+            
+    except asyncio.TimeoutError:
+        timeout_embed = discord.Embed(
+            title="⏰ Wipe Cancelled",
+            description="Confirmation timeout. Card data was not wiped.",
+            color=0xffa500
+        )
+        await interaction.followup.send(embed=timeout_embed, ephemeral=True)
 
 # Placeholder commands for removed adventure game features
 @bot.command(name='adventure')

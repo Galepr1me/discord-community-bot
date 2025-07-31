@@ -1,26 +1,25 @@
-# Discord Community Bot
+# 🤖 VibeBot - Discord Community Bot
 
-A comprehensive Discord bot with XP leveling system and text-based adventure RPG. Everything is configurable through Discord commands - no code editing required!
+A comprehensive Discord bot featuring XP leveling and a complete **Trading Card Game** with 58 unique fantasy creatures! Everything is configurable through Discord commands - no code editing required!
 
-## Features
+## ✨ Features
 
 ### 🎯 Core Systems
 - **XP System**: Users gain XP for messages, level up with progressive scaling, compete on leaderboards
-- **Adventure RPG**: Full text-based game with exploration, combat, shopping, functional items, and boss battles
-- **Daily Quests**: New challenges every day with gold rewards and progress tracking
-- **Multiple Leaderboards**: Chat XP rankings AND adventure rankings (gold, level, monster kills)
-- **Admin Controls**: Configure everything via Discord commands
-- **24/7 Hosting**: Runs on Render with UptimeRobot monitoring
+- **Trading Card Game**: Collect 58 unique cards across 6 elements and 5 rarities with ASCII art
+- **Pack Token Economy**: Daily rewards give tokens, spend tokens to open card packs
+- **Daily Rewards**: Streak-based system with increasing rewards for consistent play
+- **Admin Controls**: Configure everything via Discord slash commands
+- **24/7 Cloud Hosting**: Runs on Render with PostgreSQL database support
 
-### 🎮 Adventure Game Features
-- **3 Unique Locations**: Town (safe zone), Forest (hunting), Cave (mining)
-- **Functional Combat System**: Weapons boost damage, shields reduce damage taken
-- **Working Items**: Health potions heal, magic scrolls give XP, equipment provides bonuses
-- **Adventure Progression**: Separate leveling system for adventuring (200 XP per level)
-- **Boss Battles**: Giant Wolf Alpha (Forest), Ancient Dragon (Cave) with massive rewards
-- **Rare Events**: 5% chance for epic discoveries, 1% for legendary treasures
-- **Smart Inventory**: Items stack and show their effects
-- **Quest System**: Daily challenges with completion tracking and rewards
+### 🃏 Trading Card Game Features
+- **58 Unique Cards**: Fantasy creatures with custom ASCII art and abilities
+- **6 Elements**: Fire, Water, Earth, Air, Light, Dark with rock-paper-scissors advantages
+- **5 Rarity Tiers**: Common (60%), Rare (25%), Epic (10%), Legendary (4%), Mythic (1%)
+- **Pack Token System**: Earn tokens daily, spend to open 3-card packs
+- **Collection Tracking**: View your cards with pagination and rarity breakdowns
+- **Card Viewing**: See individual cards in full ASCII art glory
+- **Strategic Depth**: Each card has attack, health, cost, and unique abilities
 
 ### 📊 Advanced XP System
 - **Progressive Scaling**: Each level requires more XP (configurable multiplier and scaling factor)
@@ -30,19 +29,20 @@ A comprehensive Discord bot with XP leveling system and text-based adventure RPG
 - **XP Tables**: View requirements for any level range
 
 ### 🏆 Competition & Social
-- **Multiple Leaderboards**: Chat XP, Adventure Gold, Adventure Level, Monster Kills
+- **XP Leaderboards**: See top chat contributors with cached usernames
+- **Collection Stats**: Track total cards, unique cards, and rare finds
 - **Server Statistics**: Comprehensive bot usage stats and community metrics
 - **Welcome Messages**: Configurable new member greetings
 - **Level Up Announcements**: Customizable level up messages
 
-## Quick Setup
+## 🚀 Quick Setup
 
 ### 1. Discord Developer Portal
 1. Go to https://discord.com/developers/applications
 2. Create New Application → Add Bot
 3. Copy the bot token (save it!)
-4. Enable "Message Content Intent" and "Server Members Intent"
-5. Go to OAuth2 → URL Generator → Select "bot" → Copy invite link
+4. Enable "Message Content Intent"
+5. Go to OAuth2 → URL Generator → Select "bot" and "applications.commands" → Copy invite link
 
 ### 2. GitHub Repository  
 1. Create new public repository
@@ -58,153 +58,122 @@ A comprehensive Discord bot with XP leveling system and text-based adventure RPG
    - Build Command: `pip install -r requirements.txt`
    - Start Command: `python bot.py`
    - Add Environment Variable: `DISCORD_TOKEN` = your bot token
+   - (Optional) Add `DATABASE_URL` for PostgreSQL cloud database
 4. Deploy (takes 5-10 minutes)
 
 *Note: The bot includes a Flask web server so Render recognizes it as a running service.*
 
 ### 4. Invite Bot & Test
 1. Use invite link from step 1 to add bot to your server
-2. Test with `!help_custom` command
-3. Configure with `!config` commands
+2. Test with `/help` command
+3. Configure with `/config` commands
 
 ### 5. Keep Online (UptimeRobot)
 1. Sign up at https://uptimerobot.com
 2. Add HTTP monitor with your Render app URL
 3. Set 5-minute intervals
 
-## Commands
+## 📋 Commands
+
+### 🃏 Trading Card Game
+- `/cards [page]` - View your card collection with stats and pagination
+- `/pack` - Open a card pack using pack tokens (3 random cards)
+- `/view <card_name>` - View a specific card in full ASCII art
+- `/daily` - Claim daily pack tokens (streak bonuses available!)
 
 ### 📊 Chat Activity & XP System
-- `!level` - Check your XP and level with progress bar
-- `!level @user` - Check another user's level and progress
-- `!leaderboard [limit]` - See top chat XP users (default 10)
-- `!xp_table [max_level]` - View XP requirements for levels (default 10, max 25)
-- `!stats` - Comprehensive server bot statistics
-
-### 🎮 Adventure RPG Game
-- `!adventure` - Start/continue your adventure (shows daily quest too!)
-- `!action <action>` - Perform actions:
-  - **explore** - General exploration (all locations)
-  - **hunt** - Hunt monsters (Forest only)
-  - **mine** - Mine for gold (Cave only)
-  - **shop** - View town shop (Town only)
-  - **rest** - Restore full health (Town only)
-  - **dig** - Alternative cave action
-  - **gather** - Alternative forest action
-- `!inventory` - Check your items and their effects
-- `!use <item>` - Use consumable items (potions, scrolls)
-- `!buy <item>` - Purchase items from the town shop
-
-### 🏆 Leaderboards & Competition
-- `!adventure_leaderboard gold` - Top gold collectors
-- `!adventure_leaderboard level` - Highest adventure levels
-- `!adventure_leaderboard monsters` - Most monsters defeated
-
-### 📋 Daily Quest System
-- `!daily_quest` - Check today's quest progress
-- `!claim_quest` - Claim completed daily quest rewards
+- `/level [user]` - Check XP and level with progress bar
+- `/leaderboard [limit]` - See top chat XP users (default 10, max 25)
+- `/xp_table [max_level]` - View XP requirements for levels (default 10, max 25)
+- `/stats` - Comprehensive server bot statistics
 
 ### 🆘 Help & Information
-- `!help` or `!help_custom` - Complete command guide with examples
+- `/help` - Complete command guide with card game info
 
 ### ⚙️ Admin Commands (Administrator Permission Required)
-- `!config list` - View all bot settings
-- `!config get <setting>` - Check a specific setting
-- `!config set <setting> <value>` - Change a setting
+- `/config action:list` - View all bot settings
+- `/config action:get key:<setting>` - Check a specific setting
+- `/config action:set key:<setting> value:<value>` - Change a setting
+- `/status` - Detailed bot and database status dashboard
+- `/wipe_cards` - Reset all card data (with button confirmation)
 
-## Configuration Settings
+### 🎮 Legacy Commands (Still Available)
+- `!level`, `!leaderboard`, `!cards`, `!pack`, `!view`, `!help` - Traditional prefix commands
+- `!config list/get/set` - Traditional admin configuration
+
+## ⚙️ Configuration Settings
 
 ### XP System Settings
 ```
-!config set xp_per_message 15              # XP gained per message (default: 15)
-!config set xp_cooldown 60                 # Cooldown between XP gains in seconds (default: 60)
-!config set level_multiplier 100           # Base XP for first level up (default: 100)
-!config set level_scaling_factor 1.2       # How much harder each level gets (default: 1.2 = 20% increase)
-!config set xp_channel None                # Channel for level up messages (None = same channel)
-!config set level_up_message "Congratulations {user}! You reached level {level}!"
+/config action:set key:xp_per_message value:15              # XP gained per message (default: 15)
+/config action:set key:xp_cooldown value:60                 # Cooldown between XP gains in seconds (default: 60)
+/config action:set key:level_multiplier value:100           # Base XP for first level up (default: 100)
+/config action:set key:level_scaling_factor value:1.2       # How much harder each level gets (default: 1.2)
+/config action:set key:xp_channel value:None                # Channel for level up messages (None = same channel)
+/config action:set key:level_up_message value:"Congratulations {user}! You reached level {level}!"
 ```
 
-### Adventure Game Settings
+### Card Game Settings
 ```
-!config set game_enabled True              # Enable/disable adventure game
-!config set rare_event_chance 5            # Chance for rare events (default: 5%)
-!config set legendary_event_chance 1       # Chance for legendary finds (default: 1%)
-!config set boss_encounter_chance 3        # Chance for boss battles (default: 3%)
-!config set daily_quests_enabled True      # Enable daily quest system
-!config set adventure_leaderboard_enabled True  # Show adventure leaderboards
+/config action:set key:game_enabled value:True              # Enable/disable card game
 ```
 
 ### Welcome System
 ```
-!config set welcome_message "Welcome to the server, {user}!"  # New member greeting
+/config action:set key:welcome_message value:"Welcome to the server, {user}!"  # New member greeting
 ```
 
-## Game Guide
+## 🃏 Card Game Guide
 
-### 🗺️ Adventure Locations
+### 🌟 Card Elements & Advantages
 
-**🏘️ Town** - Your safe haven
-- **Actions**: explore, shop, rest
-- **Features**: Item shop, full health restoration, safe exploration
-- **Connections**: Forest, Cave
+| Element | Emoji | Beats | Color |
+|---------|-------|-------|-------|
+| 🔥 Fire | 🔥 | Earth | Orange |
+| 💧 Water | 💧 | Fire | Blue |
+| 🌍 Earth | 🌍 | Air | Brown |
+| 💨 Air | 💨 | Water | Light Blue |
+| ✨ Light | ✨ | Dark | Gold |
+| 🌑 Dark | 🌑 | Light | Purple |
 
-**🌲 Forest** - The hunting grounds  
-- **Actions**: hunt, gather, explore
-- **Monsters**: Goblins, Wolves
-- **Boss**: Giant Wolf Alpha (80 HP, 200 gold, 100 XP reward)
-- **Connections**: Town, Cave
+### 💎 Card Rarities & Drop Rates
 
-**🕳️ Cave** - The treasure depths
-- **Actions**: mine, explore, dig  
-- **Monsters**: Bats, Spiders, Orcs
-- **Boss**: Ancient Dragon (120 HP, 500 gold, 200 XP reward)
-- **Connections**: Town, Forest
+| Rarity | Emoji | Drop Rate | Border | Description |
+|--------|-------|-----------|--------|-------------|
+| Common | ⚪ | 60% | ─ | Basic creatures, reliable stats |
+| Rare | 🔵 | 25% | ═ | Enhanced abilities and stats |
+| Epic | 🟣 | 10% | ━ | Powerful creatures with special effects |
+| Legendary | 🟠 | 4% | █ | Iconic creatures with game-changing abilities |
+| Mythic | 🟡 | 1% | ▓ | Ultra-rare, the most powerful cards |
 
-### 🛍️ Shop Items & Effects
+### 🎁 Daily Reward System
 
-| Item | Price | Effect | Description |
-|------|-------|--------|-------------|
-| Health Potion | 20 gold | Heal +50 HP | Restores 50 health points |
-| Sword | 100 gold | Weapon +15 damage | Increases combat damage and gold from monsters |
-| Shield | 80 gold | Defense +10 | Reduces damage taken in combat |
-| Magic Scroll | 150 gold | Magic +25 XP | Grants 25 adventure XP when used |
+**Streak Rewards:**
+- **Days 1-6**: 1 pack token
+- **Day 7**: 2 pack tokens + Weekly Bonus
+- **Day 30**: 3 pack tokens + Monthly Legendary
+- **Every 7 days**: 2 pack tokens + Streak Milestone
+- **After 14 days**: Chance for bonus tokens based on streak length
 
-### 🎲 Special Events
+### 🎯 Card Collection Goals
 
-**✨ Rare Events (5% chance)**
-- Epic treasure discoveries worth 150-300 gold
-- Mysterious wizard encounters with health bonuses
-- Ancient maps leading to hidden treasures
-- Lucky finds with fortune boosts
+- **Total Cards**: 58 unique cards to collect
+- **Complete Sets**: Collect all cards from each element
+- **Rarity Master**: Obtain at least one card of each rarity
+- **Element Master**: Get powerful cards from your favorite element
+- **Mythic Hunter**: Find the ultra-rare 1% drop rate cards
 
-**🌟 Legendary Events (1% chance)**
-- Ancient treasure chests worth 800+ gold
-- Crown of Kings discoveries worth 1000+ gold  
-- Legendary weapon finds (Excalibur!) worth 500+ gold
-- Massive XP bonuses (200-300 adventure XP)
+### 🎮 Card Abilities (Examples)
 
-**👹 Boss Encounters (3% chance)**
-- Location-specific bosses with high rewards
-- Success based on adventure level and equipment
-- Risk vs reward gameplay - high damage if you lose!
+- **Rush**: Can attack immediately when played
+- **Stealth**: Cannot be targeted by enemies
+- **Armor**: Reduces incoming damage
+- **Flying**: Cannot be blocked by ground creatures
+- **Burn**: Deals extra damage over time
+- **Heal**: Restores health when played
+- **Draw**: Draw additional cards when played
 
-### 📋 Daily Quest Types
-
-- **Monster Hunter**: Defeat X monsters for gold rewards
-- **Explorer**: Explore X times for gold rewards  
-- **Miner**: Mine X times for gold rewards
-- **Gold Collector**: Collect X gold for bonus rewards
-
-*New quest generated daily based on your user ID - everyone gets different quests!*
-
-### 🎯 Adventure Progression
-
-- **Adventure XP**: Separate from chat XP, gained through game actions
-- **Adventure Levels**: 200 XP per level, affects boss battle success
-- **Monster Tracking**: Defeats tracked for leaderboards
-- **Gold Economy**: Persistent currency for items and upgrades
-
-## Files Needed
+## 📁 Files Needed
 
 Create these files in your GitHub repository:
 
@@ -213,80 +182,101 @@ Create these files in your GitHub repository:
 discord.py>=2.3.0
 python-dotenv>=1.0.0
 flask>=2.3.0
+psycopg2-binary>=2.9.0
+psutil>=5.9.0
 ```
 
 **bot.py** - Main bot code (copy from the provided Python file)
 
-## Advanced Features
+## 🔧 Advanced Features
 
-### 🔄 Database System
+### 🗄️ Database System
+- **Hybrid Database**: PostgreSQL for cloud (with DATABASE_URL) or SQLite for local
 - **Automatic Migrations**: Database updates itself when new features are added
-- **Data Persistence**: All progress saved automatically
+- **Data Persistence**: All progress and cards saved automatically
 - **Username Caching**: Remembers usernames even when users leave
-- **Backup-Friendly**: Single SQLite file for easy backups
+- **Card Storage**: Efficient storage of user collections and pack tokens
 
 ### 🛡️ Error Handling
-- **Cooldown Management**: Prevents command spam with user-friendly messages
+- **Slash Command Support**: Modern Discord slash commands with fallback to traditional
 - **Permission Checks**: Clear error messages for unauthorized commands
 - **Graceful Failures**: Bot continues running even if individual commands fail
 - **Auto-Cleanup**: Cooldown messages auto-delete to reduce clutter
+- **Button Confirmations**: Safe admin actions with interactive buttons
 
 ### 🎨 Rich Embeds
-- **Color-Coded Messages**: Different colors for different message types
+- **Color-Coded Cards**: Each rarity has its own color scheme
+- **ASCII Art Display**: Beautiful card presentations in code blocks
 - **Progress Bars**: Visual XP progress indicators
 - **Organized Information**: Clean, easy-to-read command outputs
-- **Interactive Elements**: Helpful footers and tips
+- **Interactive Elements**: Helpful footers and navigation tips
 
-## Troubleshooting
+### 🔮 Coming Soon (Phase 2)
+- **Player vs Player Battles**: Strategic turn-based combat
+- **Deck Building**: Create custom 20-card decks
+- **Battle Rankings**: Competitive ladder system
+- **Card Trading**: Exchange cards with other players
+- **Tournament Mode**: Weekly competitions with prizes
+
+## 🛠️ Troubleshooting
 
 **"No open ports detected" in Render logs?**
 - This is normal! The bot includes a Flask web server that should resolve this
 - Your bot should still work fine in Discord even with this message
-- Check if bot responds to `!help_custom` in your server
+- Check if bot responds to `/help` in your server
 
-**Bot not responding?**
+**Bot not responding to slash commands?**
+- Make sure you invited the bot with "applications.commands" scope
+- Slash commands may take up to 1 hour to sync globally
+- Try traditional commands like `!help` as a fallback
+
+**Bot not responding at all?**
 - Check Discord bot has "Message Content Intent" enabled
 - Verify bot token is correct in Render environment variables
 - Make sure bot has permission to send messages in your server
 
-**Bot goes offline?**
-- UptimeRobot should prevent this by pinging the Flask server
-- Check Render logs for errors
-- Free Render services sleep without monitoring
-
 **Database issues?**
 - Bot automatically handles database migrations
-- If needed, redeploy on Render to reset everything
-- All data is saved in a single `bot_data.db` file
+- Check `/status` command for database connection info
+- PostgreSQL is used if DATABASE_URL is set, otherwise SQLite
 
-**Commands not working?**
-- Check bot permissions in your Discord server
-- Verify the command prefix is `!`
-- Use `!help_custom` to see all available commands
-- Admin commands require Administrator permission
+**Card game not working?**
+- Check if game is enabled: `/config action:get key:game_enabled`
+- Enable if needed: `/config action:set key:game_enabled value:True`
+- Try `/daily` to get your first pack tokens
 
-## Support & Customization
+## 🎯 Support & Customization
 
 ### 🔧 Easy Customization
 - **No Code Required**: All settings configurable via Discord commands
 - **Real-Time Changes**: Settings take effect immediately
-- **Flexible Scaling**: Adjust XP rates, event chances, and rewards
-- **Feature Toggles**: Enable/disable entire systems as needed
+- **Flexible Scaling**: Adjust XP rates and level requirements
+- **Feature Toggles**: Enable/disable systems as needed
 
 ### 📊 Monitoring
-- **Built-in Statistics**: Track usage with `!stats` command
-- **Leaderboard Analytics**: See which features are most popular
+- **Built-in Statistics**: Track usage with `/stats` command
+- **Status Dashboard**: Comprehensive system health with `/status`
 - **Health Endpoints**: `/health` endpoint for monitoring services
-- **Activity Tracking**: Comprehensive user engagement metrics
+- **Activity Tracking**: User engagement and card collection metrics
 
 ### 🎮 Game Balance
-- **Configurable Rates**: Adjust rare event chances and rewards
+- **Carefully Tuned**: Drop rates balanced for engaging progression
 - **Scalable Difficulty**: Progressive XP requirements prevent inflation
-- **Economic Balance**: Item prices and rewards carefully tuned
-- **Risk vs Reward**: Boss battles and rare events provide meaningful choices
+- **Daily Engagement**: Streak system encourages consistent play
+- **Collection Goals**: Multiple achievement paths for different play styles
 
-That's it! Your bot will run 24/7 and handle everything automatically. Configure it through Discord commands and enjoy the complete RPG experience! 🎮✨
+## 🌟 What Makes This Special
+
+- **58 Unique Cards**: Each with custom ASCII art and lore
+- **No Pay-to-Win**: All cards obtainable through daily play
+- **Streak Rewards**: Consistent players get better rewards
+- **Visual Appeal**: Beautiful ASCII art cards in Discord
+- **Strategic Depth**: Element advantages and card abilities
+- **Community Focus**: Leaderboards and collection sharing
+- **Future-Proof**: Built for upcoming battle system
 
 ---
 
-*Built with Discord.py • Hosted on Render • Monitored by UptimeRobot*
+**Ready to start your card collection journey?** Invite the bot and use `/daily` to get your first pack tokens! 🃏✨
+
+*Built with Discord.py • Hosted on Render • PostgreSQL Database • 24/7 Uptime*

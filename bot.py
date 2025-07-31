@@ -1965,6 +1965,409 @@ async def level_slash(interaction: discord.Interaction, user: discord.Member = N
     
     await interaction.response.send_message(embed=embed)
 
+@bot.tree.command(name='leaderboard', description='Show the XP leaderboard')
+@app_commands.describe(limit='Number of users to show (default: 10, max: 25)')
+async def leaderboard_slash(interaction: discord.Interaction, limit: int = 10):
+    """Show the XP leaderboard"""
+    global _current_db_type
+    
+    # Limit the number of users shown
+    limit = max(1, min(limit, 25))
+    
+    conn = get_db_connection()
+    c = conn.cursor()
+    
+    if _current_db_type == 'postgresql':
+        c.execute('SELECT user_id, xp, level, username, display_name FROM users ORDER BY xp DESC LIMIT %s', (limit,))
+    else:
+        c.execute('SELECT user_id, xp, level, username, display_name FROM users ORDER BY xp DESC LIMIT ?', (limit,))
+    
+    top_users = c.fetchall()
+    conn.close()
+    
+    embed = discord.Embed(title="🏆 XP Leaderboard", color=0xffd700)
+    
+    if not top_users:
+        embed.description = "No users found! Start chatting to gain XP!"
+        await interaction.response.send_message(embed=embed)
+        return
+    
+    leaderboard_text = ""
+    for i, (user_id, xp, level, cached_username, cached_display_name) in enumerate(top_users, 1):
+        # Try multiple methods to get user name
+        name = None
+        
+        # Method 1: Try to get server member (for current nickname)
+        try:
+            member = interaction.guild.get_member(user_id)
+            if member:
+                name = member.display_name
+        except:
+            pass
+        
+        # Method 2: Try to fetch user from Discord API
+        if not name:
+            try:
+                user = await bot.fetch_user(user_id)
+                if user:
+                    name = user.display_name
+            except:
+                pass
+        
+        # Method 3: Try bot cache
+        if not name:
+            try:
+                user = bot.get_user(user_id)
+                if user:
+                    name = user.display_name
+            except:
+                pass
+        
+        # Method 4: Use cached display name from database
+        if not name and cached_display_name:
+            name = cached_display_name
+        
+        # Method 5: Use cached username from database
+        if not name and cached_username:
+            name = cached_username
+        
+        # Method 6: Fallback to User ID
+        if not name:
+            name = f"User {user_id}"
+        
+        medal = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else f"**{i}.**"
+        leaderboard_text += f"{medal} **{name}**\n└ Level {level} • {xp:,} XP\n\n"
+    
+    embed.description = leaderboard_text
+    embed.set_footer(text=f"Showing top {len(top_users)} users • Use /level to check your rank")
+    
+    await interaction.response.send_message(embed=embed)
+
+@bot.tree.command(name='xp_table', description='Show XP requirements for different levels')
+@app_commands.describe(max_level='Maximum level to show (default: 10, max: 25)')
+async def xp_table_slash(interaction: discord.Interaction, max_level: int = 10):
+    """Show XP requirements for different levels"""
+    if max_level > 25:
+        max_level = 25  # Prevent spam
+    
+    embed = discord.Embed(title="📊 XP Level Requirements", color=0x00ff00)
+    
+    table_text = "```\nLevel | XP for Level | Total XP\n"
+    table_text += "------|-------------|----------\n"
+    
+    for level in range(1, max_level + 1):
+        if level == 1:
+            xp_for_level = 0
+            total_xp = 0
+        else:
+            xp_for_level = calculate_xp_for_next_level(level - 1)
+            total_xp = calculate_xp_for_level(level)
+        
+        table_text += f"{level:5} | {xp_for_level:11,} | {total_xp:9,}\n"
+    
+    table_text += "```"
+    
+    embed.description = table_text
+    
+    base_xp = int(get_config('level_multiplier'))
+    scaling_factor = float(get_config('level_scaling_factor') or '1.2')
+    
+    embed.add_field(
+        name="📈 Scaling Info", 
+        value=f"Base XP: {base_xp}\nScaling Factor: {scaling_factor}x per level", 
+        inline=True
+    )
+    
+    embed.set_footer(text=f"Use /xp_table max_level:<number> to see more levels (max 25)")
+    
+    await interaction.response.send_message(embed=embed)
+
+@bot.tree.command(name='stats', description='Show server bot statistics')
+async def stats_slash(interaction: discord.Interaction):
+    """Show server bot statistics"""
+    conn = get_db_connection()
+    c = conn.cursor()
+    
+    # Get XP stats
+    c.execute('SELECT COUNT(*), SUM(total_messages), MAX(level), SUM(xp) FROM users WHERE total_messages > 0')
+    xp_stats = c.fetchone()
+    total_users, total_messages, max_level, total_xp = xp_stats
+    
+    # Get adventure stats
+    c.execute('SELECT COUNT(*), SUM(gold), MAX(level), SUM(monsters_defeated) FROM game_data WHERE gold > 0 OR monsters_defeated > 0')
+    adventure_stats = c.fetchone()
+    adventure_users, total_gold, max_adventure_level, total_monsters = adventure_stats
+    
+    # Get daily quest completion rate
+    today = datetime.now().date().isoformat()
+    c.execute('SELECT COUNT(*) FROM game_data WHERE last_daily_quest = ? AND daily_quest_progress LIKE "%claimed_%"', (today,))
+    daily_completions = c.fetchone()[0]
+    
+    conn.close()
+    
+    embed = discord.Embed(title="📊 Server Bot Statistics", color=0x7289da)
+    
+    # XP Statistics
+    xp_text = (
+        f"👥 Active Users: **{total_users or 0:,}**\n"
+        f"💬 Messages Sent: **{total_messages or 0:,}**\n"
+        f"⭐ Highest Level: **{max_level or 0}**\n"
+        f"🎯 Total XP Earned: **{total_xp or 0:,}**"
+    )
+    embed.add_field(name="📈 Chat Activity", value=xp_text, inline=True)
+    
+    # Adventure Statistics  
+    adventure_text = (
+        f"🎮 Adventurers: **{adventure_users or 0:,}**\n"
+        f"💰 Gold Collected: **{total_gold or 0:,}**\n"
+        f"⚔️ Monsters Defeated: **{total_monsters or 0:,}**\n"
+        f"🌟 Max Adventure Level: **{max_adventure_level or 0}**"
+    )
+    embed.add_field(name="🏔️ Adventure Progress", value=adventure_text, inline=True)
+    
+    # Today's Activity
+    today_text = (
+        f"📋 Daily Quests Completed: **{daily_completions or 0}**\n"
+        f"🎲 Rare Events Today: *Happening live!*\n"
+        f"👑 Current Top Player: *Check leaderboards!*\n"
+        f"🤖 Bot Uptime: *24/7 Online*"
+    )
+    embed.add_field(name="📅 Today's Activity", value=today_text, inline=False)
+    
+    # Fun Facts
+    if total_messages and total_users:
+        avg_messages = total_messages // total_users
+        fun_facts = (
+            f"📝 Average messages per user: **{avg_messages}**\n"
+            f"🎪 Most active feature: **{'Adventure Game' if adventure_users > total_users // 2 else 'XP System'}**\n"
+            f"💎 Community engagement: **{'High' if total_users > 10 else 'Growing'}**"
+        )
+        embed.add_field(name="🎉 Fun Facts", value=fun_facts, inline=False)
+    
+    embed.set_footer(text="Statistics update in real-time • Use /leaderboard to see rankings")
+    embed.timestamp = datetime.now()
+    
+    await interaction.response.send_message(embed=embed)
+
+@bot.tree.command(name='help', description='Show all available commands')
+async def help_slash(interaction: discord.Interaction):
+    """Show all available commands"""
+    
+    # Main help embed
+    embed = discord.Embed(
+        title="🤖 Community Bot Commands", 
+        description="Your complete guide to XP systems and trading card battles!",
+        color=0x00d4ff
+    )
+    
+    # XP System Section
+    embed.add_field(
+        name="📊 Chat Activity", 
+        value=(
+            "🔹 `/level` - View your XP and level\n"
+            "🔹 `/level user:<@user>` - Check someone else's level\n" 
+            "🔹 `/leaderboard` - See top XP earners\n"
+            "🔹 `/xp_table` - View XP requirements per level\n"
+            "🔹 `/stats` - Server bot statistics\n"
+            " *Gain XP automatically by chatting!*"
+        ), 
+        inline=True
+    )
+    
+    # Trading Card Game Section  
+    embed.add_field(
+        name="🃏 Trading Card Game", 
+        value=(
+            "🔹 `/cards` - View your card collection\n"
+            "🔹 `/pack` - Open card packs (5-min cooldown)\n"
+            "🔹 `/view card_name:<name>` - See card in ASCII art\n"
+            "🔹 `/daily` - Claim daily card rewards\n"
+            "⚡ *Fantasy creatures with ASCII art!*"
+        ), 
+        inline=True
+    )
+    
+    # Card Elements
+    embed.add_field(
+        name="🌟 Card Elements", 
+        value=(
+            "🔥 **Fire** beats Earth\n"
+            "💧 **Water** beats Fire\n"
+            "🌍 **Earth** beats Air\n"
+            "💨 **Air** beats Water\n"
+            "✨ **Light** beats Dark\n"
+            "🌑 **Dark** beats Light"
+        ), 
+        inline=True
+    )
+    
+    # Card Rarities
+    embed.add_field(
+        name="💎 Card Rarities", 
+        value=(
+            "⚪ **Common** - 60% drop rate\n"
+            "🔵 **Rare** - 25% drop rate\n"
+            "🟣 **Epic** - 10% drop rate\n"
+            "🟠 **Legendary** - 4% drop rate\n"
+            "🟡 **Mythic** - 1% drop rate"
+        ), 
+        inline=True
+    )
+    
+    # Quick Start Guide
+    embed.add_field(
+        name="🚀 Quick Start Guide", 
+        value=(
+            "1️⃣ Chat normally to gain XP\n"
+            "2️⃣ Use `/pack` to open your first card pack\n"
+            "3️⃣ Use `/cards` to view your collection\n"
+            "4️⃣ Use `/daily` to claim daily rewards!"
+        ), 
+        inline=True
+    )
+    
+    # Coming Soon
+    embed.add_field(
+        name="🔮 Coming Soon", 
+        value=(
+            "⚔️ **Player vs Player Battles**\n"
+            "🤖 **AI Opponents**\n"
+            "💱 **Card Trading System**\n"
+            "🏆 **Tournament Mode**\n"
+            "📦 **Special Pack Types**"
+        ), 
+        inline=True
+    )
+    
+    # Footer with additional info
+    embed.set_footer(
+        text="💡 Tip: Use /daily every day for streak bonuses! • 🎴 58 unique cards available",
+    )
+    
+    await interaction.response.send_message(embed=embed)
+    
+    # Send admin commands separately if user has permissions
+    if interaction.user.guild_permissions.administrator:
+        admin_embed = discord.Embed(
+            title="⚙️ Admin Commands", 
+            description="Configure your bot without touching code!",
+            color=0xff6b35
+        )
+        
+        admin_embed.add_field(
+            name="🛠️ Configuration", 
+            value=(
+                "🔹 `/config action:list` - View all settings\n"
+                "🔹 `/config action:get key:<key>` - Check specific setting\n"
+                "🔹 `/config action:set key:<key> value:<value>` - Change setting\n"
+            ), 
+            inline=True
+        )
+        
+        admin_embed.add_field(
+            name="🔧 Key Settings", 
+            value=(
+                "🔹 `xp_per_message` - XP per message\n"
+                "🔹 `level_multiplier` - Base XP for leveling\n"
+                "🔹 `level_scaling_factor` - Level difficulty scaling\n"
+                "🔹 `rare_event_chance` - Rare discovery rate (%)\n"
+                "🔹 `boss_encounter_chance` - Boss battle rate (%)\n"
+                "🔹 `daily_quests_enabled` - Enable daily quests\n"
+                "🔹 `game_enabled` - Enable/disable card game"
+            ), 
+            inline=True
+        )
+        
+        admin_embed.add_field(
+            name="🔐 Admin Only Commands",
+            value=(
+                "🔹 `/status` - Bot status dashboard\n"
+                "🔹 `/config` - Bot configuration\n"
+                "🔹 `!config` - Legacy config (still works)"
+            ),
+            inline=False
+        )
+        
+        admin_embed.set_footer(text="🔐 Admin-only commands • Use /config action:list to see all options")
+        
+        await interaction.followup.send(embed=admin_embed, ephemeral=True)
+
+@bot.tree.command(name='config', description='Configure bot settings (Admin only)')
+@app_commands.default_permissions(administrator=True)
+@app_commands.describe(
+    action='Action to perform',
+    key='Configuration key (for get/set actions)',
+    value='New value (for set action)'
+)
+@app_commands.choices(action=[
+    app_commands.Choice(name='list', value='list'),
+    app_commands.Choice(name='get', value='get'),
+    app_commands.Choice(name='set', value='set')
+])
+async def config_slash(interaction: discord.Interaction, action: str, key: str = None, value: str = None):
+    """Configure bot settings"""
+    
+    if action == 'list':
+        conn = get_db_connection()
+        c = conn.cursor()
+        c.execute('SELECT key, value FROM config')
+        configs = c.fetchall()
+        conn.close()
+        
+        embed = discord.Embed(title="⚙️ Bot Configuration", color=0x00ff00)
+        
+        # Group configs for better display
+        xp_configs = []
+        game_configs = []
+        other_configs = []
+        
+        for config_key, val in configs:
+            if 'xp' in config_key or 'level' in config_key:
+                xp_configs.append(f"**{config_key}**: {val}")
+            elif 'game' in config_key or 'quest' in config_key or 'event' in config_key:
+                game_configs.append(f"**{config_key}**: {val}")
+            else:
+                other_configs.append(f"**{config_key}**: {val}")
+        
+        if xp_configs:
+            embed.add_field(name="📊 XP System", value="\n".join(xp_configs), inline=False)
+        if game_configs:
+            embed.add_field(name="🎮 Game Settings", value="\n".join(game_configs), inline=False)
+        if other_configs:
+            embed.add_field(name="🔧 Other Settings", value="\n".join(other_configs), inline=False)
+        
+        embed.set_footer(text="Use /config action:get key:<key> to check specific settings")
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+        
+    elif action == 'get' and key:
+        value = get_config(key)
+        embed = discord.Embed(title="⚙️ Configuration Value", color=0x3498db)
+        embed.add_field(name=key, value=value if value is not None else "Not set", inline=False)
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+        
+    elif action == 'set' and key and value:
+        set_config(key, value)
+        embed = discord.Embed(title="✅ Configuration Updated", color=0x00ff00)
+        embed.add_field(name=key, value=f"Set to: {value}", inline=False)
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+        
+    else:
+        embed = discord.Embed(
+            title="❌ Invalid Usage", 
+            description="Please provide the required parameters for your chosen action.",
+            color=0xff0000
+        )
+        embed.add_field(
+            name="Usage Examples:",
+            value=(
+                "• `/config action:list` - View all settings\n"
+                "• `/config action:get key:xp_per_message` - Get specific setting\n"
+                "• `/config action:set key:xp_per_message value:20` - Set value"
+            ),
+            inline=False
+        )
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
 # Placeholder commands for removed adventure game features
 @bot.command(name='adventure')
 async def adventure_command(ctx):

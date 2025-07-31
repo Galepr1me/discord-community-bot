@@ -1175,6 +1175,81 @@ async def cards_command(ctx, page: int = 1):
     
     await ctx.send(embed=embed)
 
+@bot.command(name='view')
+async def view_card_command(ctx, *, card_name):
+    """View a specific card in full ASCII art format"""
+    if get_config('game_enabled') != 'True':
+        await ctx.send("The card game is currently disabled.")
+        return
+    
+    # Find the card in the library
+    card = None
+    for library_card in card_game.card_library:
+        if library_card['name'].lower() == card_name.lower():
+            card = library_card
+            break
+    
+    if not card:
+        # Show available cards
+        available_cards = [c['name'] for c in card_game.card_library]
+        embed = discord.Embed(
+            title="❌ Card Not Found", 
+            description=f"Could not find card: **{card_name}**",
+            color=0xff0000
+        )
+        
+        # Show some example cards
+        examples = available_cards[:10]  # First 10 cards
+        embed.add_field(
+            name="Available Cards (examples)", 
+            value="\n".join(f"• {name}" for name in examples),
+            inline=False
+        )
+        
+        embed.set_footer(text="Use exact card names • Case insensitive")
+        await ctx.send(embed=embed)
+        return
+    
+    # Display the card with full ASCII art
+    card_display, color = format_card_display(card)
+    
+    embed = discord.Embed(
+        title=f"🃏 {card['name']}", 
+        description=f"```\n{card_display}\n```",
+        color=color
+    )
+    
+    # Add detailed stats
+    element_info = card_game.elements[card['element']]
+    rarity_info = card_game.rarities[card['rarity']]
+    
+    embed.add_field(
+        name="📊 Card Details", 
+        value=(
+            f"{element_info['emoji']} **Element:** {card['element'].title()}\n"
+            f"💎 **Rarity:** {card['rarity'].title()}\n"
+            f"⚔️ **Attack:** {card['attack']}\n"
+            f"❤️ **Health:** {card['health']}\n"
+            f"💰 **Cost:** {card['cost']}\n"
+            f"🎯 **Ability:** {card['ability']}"
+        ),
+        inline=True
+    )
+    
+    # Add element advantage info
+    beats_element = card_game.elements[card['element']]['beats']
+    beats_info = card_game.elements[beats_element]
+    
+    embed.add_field(
+        name="⚡ Element Advantage", 
+        value=f"{element_info['emoji']} **{card['element'].title()}** beats {beats_info['emoji']} **{beats_element.title()}**",
+        inline=True
+    )
+    
+    embed.set_footer(text="Use !pack to collect cards • Use !cards to view your collection")
+    
+    await ctx.send(embed=embed)
+
 @bot.command(name='pack')
 async def pack_command(ctx):
     """Open a card pack"""
@@ -1414,8 +1489,8 @@ async def help_custom(ctx):
         value=(
             "🔹 `!cards` - View your card collection\n"
             "🔹 `!pack` - Open card packs\n"
+            "🔹 `!view <card name>` - See card in ASCII art\n"
             "🔹 `!adventure` - Info about the new card game\n"
-            "🔹 More features coming soon!\n"
             "⚡ *Fantasy creatures with ASCII art!*"
         ), 
         inline=True

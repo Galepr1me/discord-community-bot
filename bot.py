@@ -169,6 +169,11 @@ def init_db():
                           current_streak INTEGER DEFAULT 0, total_claims INTEGER DEFAULT 0,
                           best_streak INTEGER DEFAULT 0)''')
             
+            c.execute('''CREATE TABLE IF NOT EXISTS user_packs
+                         (user_id BIGINT NOT NULL, pack_type TEXT DEFAULT 'standard', 
+                          quantity INTEGER DEFAULT 0, obtained_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                          PRIMARY KEY (user_id, pack_type))''')
+            
             # PostgreSQL migrations
             c.execute('SELECT version FROM db_version ORDER BY version DESC LIMIT 1')
             current_version = c.fetchone()
@@ -243,6 +248,11 @@ def init_db():
                          (user_id INTEGER PRIMARY KEY, last_claim_date DATE, 
                           current_streak INTEGER DEFAULT 0, total_claims INTEGER DEFAULT 0,
                           best_streak INTEGER DEFAULT 0)''')
+            
+            c.execute('''CREATE TABLE IF NOT EXISTS user_packs
+                         (user_id INTEGER NOT NULL, pack_type TEXT DEFAULT 'standard', 
+                          quantity INTEGER DEFAULT 0, obtained_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                          PRIMARY KEY (user_id, pack_type))''')
             
             # SQLite migrations
             c.execute('SELECT version FROM db_version ORDER BY version DESC LIMIT 1')
@@ -1540,6 +1550,7 @@ async def view_card_command(ctx, *, card_name):
     await ctx.send(embed=embed)
 
 @bot.command(name='pack')
+@commands.cooldown(1, 300, commands.BucketType.user)  # 1 pack per 5 minutes per user
 async def pack_command(ctx):
     """Open a card pack"""
     if get_config('game_enabled') != 'True':
@@ -1601,6 +1612,7 @@ async def pack_command(ctx):
 
 # SLASH COMMANDS - Card Game
 @bot.tree.command(name='pack', description='Open a card pack and add cards to your collection')
+@app_commands.checks.cooldown(1, 300, key=lambda i: i.user.id)  # 1 pack per 5 minutes per user
 async def pack_slash(interaction: discord.Interaction):
     """Open a card pack"""
     if get_config('game_enabled') != 'True':

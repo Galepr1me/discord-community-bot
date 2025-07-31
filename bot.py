@@ -103,6 +103,22 @@ def get_db_path():
         # Use local file for development
         return 'bot_data.db'
 
+def populate_card_library_postgresql(cursor):
+    """Populate the cards table with the initial card library for PostgreSQL"""
+    for card in card_game.card_library:
+        cursor.execute('''INSERT INTO cards (name, element, rarity, attack, health, cost, ability, ascii_art) 
+                         VALUES (%s, %s, %s, %s, %s, %s, %s, %s)''',
+                      (card['name'], card['element'], card['rarity'], card['attack'], 
+                       card['health'], card['cost'], card['ability'], card['ascii']))
+
+def populate_card_library_sqlite(cursor):
+    """Populate the cards table with the initial card library for SQLite"""
+    for card in card_game.card_library:
+        cursor.execute('''INSERT INTO cards (name, element, rarity, attack, health, cost, ability, ascii_art) 
+                         VALUES (?, ?, ?, ?, ?, ?, ?, ?)''',
+                      (card['name'], card['element'], card['rarity'], card['attack'], 
+                       card['health'], card['cost'], card['ability'], card['ascii']))
+
 def init_db():
     global _current_db_type
     conn = get_db_connection()
@@ -130,6 +146,23 @@ def init_db():
             c.execute('''CREATE TABLE IF NOT EXISTS db_version
                          (version INTEGER PRIMARY KEY)''')
             
+            # Card Game Tables for PostgreSQL
+            c.execute('''CREATE TABLE IF NOT EXISTS cards
+                         (card_id SERIAL PRIMARY KEY, name TEXT NOT NULL, element TEXT NOT NULL,
+                          rarity TEXT NOT NULL, attack INTEGER NOT NULL, health INTEGER NOT NULL,
+                          cost INTEGER NOT NULL, ability TEXT, ascii_art TEXT NOT NULL)''')
+            
+            c.execute('''CREATE TABLE IF NOT EXISTS user_cards
+                         (user_id BIGINT NOT NULL, card_id INTEGER NOT NULL, quantity INTEGER DEFAULT 1,
+                          obtained_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                          PRIMARY KEY (user_id, card_id),
+                          FOREIGN KEY (card_id) REFERENCES cards(card_id))''')
+            
+            c.execute('''CREATE TABLE IF NOT EXISTS user_decks
+                         (deck_id SERIAL PRIMARY KEY, user_id BIGINT NOT NULL, deck_name TEXT DEFAULT 'Main Deck',
+                          card_ids JSON NOT NULL, is_active BOOLEAN DEFAULT FALSE,
+                          created_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
+            
             # PostgreSQL migrations
             c.execute('SELECT version FROM db_version ORDER BY version DESC LIMIT 1')
             current_version = c.fetchone()
@@ -148,7 +181,20 @@ def init_db():
                     print(f"Migration note: {e}")
                 
                 c.execute('INSERT INTO db_version (version) VALUES (%s) ON CONFLICT (version) DO NOTHING', (2,))
-                print("✅ PostgreSQL database initialized")
+            
+            if current_version < 3:
+                # Card system migration - populate cards table
+                try:
+                    c.execute('SELECT COUNT(*) FROM cards')
+                    card_count = c.fetchone()[0]
+                    if card_count == 0:
+                        print("🃏 Populating card library...")
+                        populate_card_library_postgresql(c)
+                except Exception as e:
+                    print(f"Card migration note: {e}")
+                
+                c.execute('INSERT INTO db_version (version) VALUES (%s) ON CONFLICT (version) DO NOTHING', (3,))
+                print("✅ PostgreSQL database with card system initialized")
         
         else:
             # SQLite syntax
@@ -169,6 +215,23 @@ def init_db():
             
             c.execute('''CREATE TABLE IF NOT EXISTS db_version
                          (version INTEGER PRIMARY KEY)''')
+            
+            # Card Game Tables for SQLite
+            c.execute('''CREATE TABLE IF NOT EXISTS cards
+                         (card_id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, element TEXT NOT NULL,
+                          rarity TEXT NOT NULL, attack INTEGER NOT NULL, health INTEGER NOT NULL,
+                          cost INTEGER NOT NULL, ability TEXT, ascii_art TEXT NOT NULL)''')
+            
+            c.execute('''CREATE TABLE IF NOT EXISTS user_cards
+                         (user_id INTEGER NOT NULL, card_id INTEGER NOT NULL, quantity INTEGER DEFAULT 1,
+                          obtained_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                          PRIMARY KEY (user_id, card_id),
+                          FOREIGN KEY (card_id) REFERENCES cards(card_id))''')
+            
+            c.execute('''CREATE TABLE IF NOT EXISTS user_decks
+                         (deck_id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, deck_name TEXT DEFAULT 'Main Deck',
+                          card_ids TEXT NOT NULL, is_active INTEGER DEFAULT 0,
+                          created_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
             
             # SQLite migrations
             c.execute('SELECT version FROM db_version ORDER BY version DESC LIMIT 1')
@@ -208,6 +271,20 @@ def init_db():
                 
                 c.execute('INSERT OR REPLACE INTO db_version (version) VALUES (2)')
                 print("✅ Database migrated to version 2")
+            
+            if current_version < 3:
+                # Card system migration - populate cards table
+                try:
+                    c.execute('SELECT COUNT(*) FROM cards')
+                    card_count = c.fetchone()[0]
+                    if card_count == 0:
+                        print("🃏 Populating card library...")
+                        populate_card_library_sqlite(c)
+                except Exception as e:
+                    print(f"Card migration note: {e}")
+                
+                c.execute('INSERT OR REPLACE INTO db_version (version) VALUES (3)')
+                print("✅ SQLite database with card system initialized")
         
         # Default configuration (works for both databases)
         default_config = {
@@ -869,6 +946,90 @@ class CardGame:
 
 card_game = CardGame()
 
+# Card Storage Functions
+def add_card_to_collection(user_id, card_id, quantity=1):
+    """Add a card to user's collection"""
+    global _current_db_type
+    conn = get_db_connection()
+    c = conn.cursor()
+    
+    try:
+        if _current_db_type == 'postgresql':
+            # Try to insert new card, or update quantity if it exists
+            c.execute('''INSERT INTO user_cards (user_id, card_id, quantity) 
+                         VALUES (%s, %s, %s) 
+                         ON CONFLICT (user_id, card_id) 
+                         DO UPDATE SET quantity = user_cards.quantity + %s''',
+                      (user_id, card_id, quantity, quantity))
+        else:
+            # SQLite approach - check if exists first
+            c.execute('SELECT quantity FROM user_cards WHERE user_id = ? AND card_id = ?', (user_id, card_id))
+            existing = c.fetchone()
+            
+            if existing:
+                new_quantity = existing[0] + quantity
+                c.execute('UPDATE user_cards SET quantity = ? WHERE user_id = ? AND card_id = ?',
+                         (new_quantity, user_id, card_id))
+            else:
+                c.execute('INSERT INTO user_cards (user_id, card_id, quantity) VALUES (?, ?, ?)',
+                         (user_id, card_id, quantity))
+        
+        conn.commit()
+        return True
+    except Exception as e:
+        print(f"Error adding card to collection: {e}")
+        return False
+    finally:
+        conn.close()
+
+def get_user_collection(user_id):
+    """Get user's card collection with card details"""
+    global _current_db_type
+    conn = get_db_connection()
+    c = conn.cursor()
+    
+    try:
+        if _current_db_type == 'postgresql':
+            c.execute('''SELECT c.card_id, c.name, c.element, c.rarity, c.attack, c.health, c.cost, c.ability, c.ascii_art, uc.quantity
+                         FROM cards c 
+                         JOIN user_cards uc ON c.card_id = uc.card_id 
+                         WHERE uc.user_id = %s 
+                         ORDER BY c.rarity DESC, c.name''', (user_id,))
+        else:
+            c.execute('''SELECT c.card_id, c.name, c.element, c.rarity, c.attack, c.health, c.cost, c.ability, c.ascii_art, uc.quantity
+                         FROM cards c 
+                         JOIN user_cards uc ON c.card_id = uc.card_id 
+                         WHERE uc.user_id = ? 
+                         ORDER BY c.rarity DESC, c.name''', (user_id,))
+        
+        results = c.fetchall()
+        return results
+    except Exception as e:
+        print(f"Error getting user collection: {e}")
+        return []
+    finally:
+        conn.close()
+
+def get_card_by_name(card_name):
+    """Get card details from database by name"""
+    global _current_db_type
+    conn = get_db_connection()
+    c = conn.cursor()
+    
+    try:
+        if _current_db_type == 'postgresql':
+            c.execute('SELECT * FROM cards WHERE name = %s', (card_name,))
+        else:
+            c.execute('SELECT * FROM cards WHERE name = ?', (card_name,))
+        
+        result = c.fetchone()
+        return result
+    except Exception as e:
+        print(f"Error getting card by name: {e}")
+        return None
+    finally:
+        conn.close()
+
 # Card Game Commands
 def format_card_display(card):
     """Format a card for display with ASCII art and stats"""
@@ -922,29 +1083,95 @@ def format_card_display(card):
     return display, color
 
 @bot.command(name='cards')
-async def cards_command(ctx):
+async def cards_command(ctx, page: int = 1):
     """View your card collection"""
     if get_config('game_enabled') != 'True':
         await ctx.send("The card game is currently disabled.")
         return
     
-    # For now, show a sample card since we haven't implemented collection yet
-    sample_card = card_game.card_library[0]  # Fire Sprite
-    card_display, color = format_card_display(sample_card)
+    # Get user's collection from database
+    collection = get_user_collection(ctx.author.id)
+    
+    if not collection:
+        embed = discord.Embed(
+            title="🃏 Your Card Collection", 
+            description="Your collection is empty! Use `!pack` to get your first cards.",
+            color=0x95a5a6
+        )
+        embed.add_field(
+            name="Getting Started", 
+            value="🎁 Use `!pack` to open card packs\n🎴 Collect all 20 unique cards\n⚔️ Battles coming soon!",
+            inline=False
+        )
+        await ctx.send(embed=embed)
+        return
+    
+    # Calculate collection stats
+    total_cards = sum(card[9] for card in collection)  # quantity is index 9
+    unique_cards = len(collection)
+    rare_cards = sum(1 for card in collection if card[3] in ['rare', 'epic', 'legendary', 'mythic'])
+    
+    # Pagination - 5 cards per page
+    cards_per_page = 5
+    total_pages = (len(collection) + cards_per_page - 1) // cards_per_page
+    page = max(1, min(page, total_pages))
+    
+    start_idx = (page - 1) * cards_per_page
+    end_idx = start_idx + cards_per_page
+    page_cards = collection[start_idx:end_idx]
     
     embed = discord.Embed(
         title="🃏 Your Card Collection", 
-        description=f"```\n{card_display}\n```",
-        color=color
+        description=f"**Page {page}/{total_pages}** • Showing {len(page_cards)} cards",
+        color=0x3498db
     )
     
+    # Add collection stats
     embed.add_field(
-        name="Collection Stats", 
-        value="📦 **0** cards owned\n🎴 **0** unique cards\n💎 **0** rare+ cards", 
+        name="📊 Collection Stats", 
+        value=f"📦 **{total_cards}** total cards\n🎴 **{unique_cards}**/20 unique cards\n💎 **{rare_cards}** rare+ cards", 
         inline=True
     )
     
-    embed.set_footer(text="Card collection system coming soon! • Use !pack to get your first cards")
+    # Add rarity breakdown
+    rarity_counts = {}
+    for card in collection:
+        rarity = card[3]  # rarity is index 3
+        rarity_counts[rarity] = rarity_counts.get(rarity, 0) + card[9]  # quantity
+    
+    rarity_text = ""
+    for rarity in ['common', 'rare', 'epic', 'legendary', 'mythic']:
+        if rarity in rarity_counts:
+            emoji = {'common': '⚪', 'rare': '🔵', 'epic': '🟣', 'legendary': '🟠', 'mythic': '🟡'}[rarity]
+            rarity_text += f"{emoji} {rarity_counts[rarity]} {rarity.title()}\n"
+    
+    if rarity_text:
+        embed.add_field(name="🌟 By Rarity", value=rarity_text, inline=True)
+    
+    # Add cards on this page
+    for card_data in page_cards:
+        card_id, name, element, rarity, attack, health, cost, ability, ascii_art, quantity = card_data
+        
+        element_info = card_game.elements[element]
+        rarity_info = card_game.rarities[rarity]
+        
+        quantity_text = f" x{quantity}" if quantity > 1 else ""
+        
+        embed.add_field(
+            name=f"{name}{quantity_text}", 
+            value=f"{element_info['emoji']} {element.title()} • {rarity.title()}\n"
+                  f"⚔️ {attack} ATK • ❤️ {health} HP • 💎 {cost} Cost\n"
+                  f"🎯 {ability if ability != 'None' else 'No special ability'}",
+            inline=False
+        )
+    
+    # Add navigation footer
+    footer_text = "Use !pack to get more cards"
+    if total_pages > 1:
+        footer_text += f" • Use !cards {page + 1} for next page" if page < total_pages else ""
+        footer_text += f" • Use !cards {page - 1} for previous page" if page > 1 else ""
+    
+    embed.set_footer(text=footer_text)
     
     await ctx.send(embed=embed)
 
@@ -955,7 +1182,7 @@ async def pack_command(ctx):
         await ctx.send("The card game is currently disabled.")
         return
     
-    # Simulate opening a pack with 3 random cards
+    # Generate 3 random cards for the pack
     pack_cards = []
     
     for _ in range(3):
@@ -973,12 +1200,19 @@ async def pack_command(ctx):
         # Get random card of selected rarity
         rarity_cards = [card for card in card_game.card_library if card['rarity'] == selected_rarity]
         if rarity_cards:
-            pack_cards.append(random.choice(rarity_cards))
+            selected_card = random.choice(rarity_cards)
+            pack_cards.append(selected_card)
+            
+            # Add card to user's collection in database
+            card_data = get_card_by_name(selected_card['name'])
+            if card_data:
+                card_id = card_data[0]  # First column is card_id
+                add_card_to_collection(ctx.author.id, card_id, 1)
     
     # Display the pack opening
     embed = discord.Embed(
         title="🎁 Card Pack Opened!", 
-        description="You received 3 new cards:",
+        description="You received 3 new cards and they've been added to your collection:",
         color=0xffd700
     )
     
@@ -997,7 +1231,7 @@ async def pack_command(ctx):
             inline=False
         )
     
-    embed.set_footer(text="Use !cards to view your collection • Card storage system coming soon!")
+    embed.set_footer(text="Use !cards to view your full collection!")
     
     await ctx.send(embed=embed)
 

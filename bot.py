@@ -2462,48 +2462,18 @@ async def config_slash(interaction: discord.Interaction, action: str, key: str =
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
 # Admin Commands
-@bot.tree.command(name='wipe_cards', description='Wipe all user card data (Admin only)')
-@app_commands.default_permissions(administrator=True)
-async def wipe_cards_slash(interaction: discord.Interaction):
-    """Wipe all user card data - Admin only"""
-    global _current_db_type
+class WipeConfirmView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=30.0)
+        self.confirmed = False
     
-    # Confirmation embed
-    embed = discord.Embed(
-        title="⚠️ DANGER: Wipe All Card Data",
-        description="This will permanently delete ALL user card collections, pack tokens, and daily reward streaks!",
-        color=0xff0000
-    )
-    
-    embed.add_field(
-        name="🗑️ What will be deleted:",
-        value=(
-            "• All user card collections\n"
-            "• All pack tokens\n"
-            "• All daily reward streaks\n"
-            "• All card-related progress"
-        ),
-        inline=False
-    )
-    
-    embed.add_field(
-        name="⚠️ This action cannot be undone!",
-        value="Type `CONFIRM WIPE` in the next message to proceed.",
-        inline=False
-    )
-    
-    await interaction.response.send_message(embed=embed, ephemeral=True)
-    
-    # Wait for confirmation
-    def check(message):
-        return (message.author.id == interaction.user.id and 
-                message.content == "CONFIRM WIPE" and
-                message.channel == interaction.channel)
-    
-    try:
-        confirmation = await bot.wait_for('message', timeout=30.0, check=check)
+    @discord.ui.button(label='CONFIRM WIPE', style=discord.ButtonStyle.danger, emoji='🗑️')
+    async def confirm_wipe(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.confirmed = True
+        self.stop()
         
         # Perform the wipe
+        global _current_db_type
         conn = get_db_connection()
         c = conn.cursor()
         
@@ -2551,7 +2521,7 @@ async def wipe_cards_slash(interaction: discord.Interaction):
                 inline=False
             )
             
-            await confirmation.reply(embed=success_embed)
+            await interaction.response.edit_message(embed=success_embed, view=None)
             
         except Exception as e:
             conn.close()
@@ -2560,15 +2530,71 @@ async def wipe_cards_slash(interaction: discord.Interaction):
                 description=f"An error occurred while wiping data: {str(e)}",
                 color=0xff0000
             )
-            await confirmation.reply(embed=error_embed)
-            
-    except asyncio.TimeoutError:
-        timeout_embed = discord.Embed(
-            title="⏰ Wipe Cancelled",
-            description="Confirmation timeout. Card data was not wiped.",
+            await interaction.response.edit_message(embed=error_embed, view=None)
+    
+    @discord.ui.button(label='Cancel', style=discord.ButtonStyle.secondary, emoji='❌')
+    async def cancel_wipe(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.confirmed = False
+        self.stop()
+        
+        cancel_embed = discord.Embed(
+            title="❌ Wipe Cancelled",
+            description="Card data wipe has been cancelled. No data was deleted.",
             color=0xffa500
         )
-        await interaction.followup.send(embed=timeout_embed, ephemeral=True)
+        await interaction.response.edit_message(embed=cancel_embed, view=None)
+    
+    async def on_timeout(self):
+        # Disable all buttons when timeout occurs
+        for item in self.children:
+            item.disabled = True
+
+@bot.tree.command(name='wipe_cards', description='Wipe all user card data (Admin only)')
+@app_commands.default_permissions(administrator=True)
+async def wipe_cards_slash(interaction: discord.Interaction):
+    """Wipe all user card data - Admin only"""
+    
+    # Confirmation embed
+    embed = discord.Embed(
+        title="⚠️ DANGER: Wipe All Card Data",
+        description="This will permanently delete ALL user card collections, pack tokens, and daily reward streaks!",
+        color=0xff0000
+    )
+    
+    embed.add_field(
+        name="🗑️ What will be deleted:",
+        value=(
+            "• All user card collections\n"
+            "• All pack tokens\n"
+            "• All daily reward streaks\n"
+            "• All card-related progress"
+        ),
+        inline=False
+    )
+    
+    embed.add_field(
+        name="⚠️ This action cannot be undone!",
+        value="Click the **CONFIRM WIPE** button below to proceed, or **Cancel** to abort.",
+        inline=False
+    )
+    
+    view = WipeConfirmView()
+    await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+    
+    # Wait for the view to finish
+    await view.wait()
+    
+    # If timeout occurred and no response was given
+    if not view.confirmed and not interaction.is_expired():
+        try:
+            timeout_embed = discord.Embed(
+                title="⏰ Wipe Cancelled",
+                description="Confirmation timeout. Card data was not wiped.",
+                color=0xffa500
+            )
+            await interaction.edit_original_response(embed=timeout_embed, view=None)
+        except:
+            pass  # Interaction might have already been handled
 
 # Placeholder commands for removed adventure game features
 @bot.command(name='adventure')

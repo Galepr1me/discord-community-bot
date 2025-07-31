@@ -1605,6 +1605,25 @@ async def adventure_command(ctx):
     embed.set_footer(text="The card game is still in development - stay tuned for battles and trading!")
     await ctx.send(embed=embed)
 
+# Slash command error handling
+@bot.tree.error
+async def on_app_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
+    """Handle slash command errors"""
+    try:
+        if isinstance(error, app_commands.MissingPermissions):
+            if not interaction.response.is_done():
+                await interaction.response.send_message("❌ You don't have permission to use this command!", ephemeral=True)
+        elif isinstance(error, app_commands.CommandOnCooldown):
+            if not interaction.response.is_done():
+                await interaction.response.send_message(f"⏱️ Command is on cooldown. Try again in **{error.retry_after:.1f}** seconds.", ephemeral=True)
+        else:
+            # Log the error but don't show full details to users
+            print(f"Slash command error in /{interaction.command.name if interaction.command else 'unknown'}: {error}")
+            if not interaction.response.is_done():
+                await interaction.response.send_message("⚠️ Something went wrong. Please try again.", ephemeral=True)
+    except Exception as e:
+        print(f"Error in slash command error handler: {e}")
+
 # Bot events
 @bot.event
 async def on_ready():

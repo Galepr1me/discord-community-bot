@@ -545,10 +545,10 @@ async def on_message(message):
     
     await bot.process_commands(message)
 
-# Admin Configuration Commands
-@bot.command(name='status')
-@commands.has_permissions(administrator=True)
-async def status_command(ctx):
+# SLASH COMMANDS - Admin Configuration
+@bot.tree.command(name='status', description='Show bot and database status (Admin only)')
+@app_commands.default_permissions(administrator=True)
+async def status_slash(interaction: discord.Interaction):
     """Show bot and database status (Admin only)"""
     import psutil
     import platform
@@ -671,7 +671,7 @@ async def status_command(ctx):
     embed.timestamp = datetime.now()
     embed.set_footer(text="Status checked at")
     
-    await ctx.send(embed=embed)
+    await interaction.response.send_message(embed=embed)
 
 @bot.command(name='config')
 @commands.has_permissions(administrator=True)
@@ -1611,12 +1611,17 @@ async def on_ready():
     print(f'{bot.user} has connected to Discord!')
     init_db()
     
-    # Sync slash commands
+    # Sync slash commands with detailed logging
     try:
+        print("🔄 Attempting to sync slash commands...")
         synced = await bot.tree.sync()
-        print(f"✅ Synced {len(synced)} slash command(s)")
+        print(f"✅ Successfully synced {len(synced)} slash command(s):")
+        for cmd in synced:
+            print(f"   - /{cmd.name}: {cmd.description}")
     except Exception as e:
         print(f"❌ Failed to sync slash commands: {e}")
+        print("💡 Make sure your bot has 'applications.commands' scope enabled!")
+        print("💡 Re-invite your bot with the correct permissions if needed.")
 
 @bot.event
 async def on_member_join(member):

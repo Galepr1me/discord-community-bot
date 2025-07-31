@@ -164,6 +164,11 @@ def init_db():
                           card_ids JSON NOT NULL, is_active BOOLEAN DEFAULT FALSE,
                           created_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
             
+            c.execute('''CREATE TABLE IF NOT EXISTS daily_rewards
+                         (user_id BIGINT PRIMARY KEY, last_claim_date DATE, 
+                          current_streak INTEGER DEFAULT 0, total_claims INTEGER DEFAULT 0,
+                          best_streak INTEGER DEFAULT 0)''')
+            
             # PostgreSQL migrations
             c.execute('SELECT version FROM db_version ORDER BY version DESC LIMIT 1')
             current_version = c.fetchone()
@@ -233,6 +238,11 @@ def init_db():
                          (deck_id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, deck_name TEXT DEFAULT 'Main Deck',
                           card_ids TEXT NOT NULL, is_active INTEGER DEFAULT 0,
                           created_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
+            
+            c.execute('''CREATE TABLE IF NOT EXISTS daily_rewards
+                         (user_id INTEGER PRIMARY KEY, last_claim_date DATE, 
+                          current_streak INTEGER DEFAULT 0, total_claims INTEGER DEFAULT 0,
+                          best_streak INTEGER DEFAULT 0)''')
             
             # SQLite migrations
             c.execute('SELECT version FROM db_version ORDER BY version DESC LIMIT 1')
@@ -871,70 +881,172 @@ class CardGame:
         self.card_library = self._create_initial_cards()
     
     def _create_initial_cards(self):
-        """Create the initial set of 20 cards"""
+        """Create the expanded card library with 60+ cards"""
         cards = []
         
-        # Common Cards (8 total - 2 per basic element)
+        # Common Cards (24 total - 4 per element)
         common_cards = [
-            # Fire Commons
+            # Fire Commons (6 total)
             {'name': 'Fire Sprite', 'element': 'fire', 'rarity': 'common', 'attack': 2, 'health': 1, 'cost': 1,
              'ascii': ' /^\\\n( o )\n \\v/', 'ability': 'None'},
             {'name': 'Flame Imp', 'element': 'fire', 'rarity': 'common', 'attack': 3, 'health': 2, 'cost': 2,
              'ascii': ' /^^^\\\n( >o< )\n  \\_/', 'ability': 'None'},
+            {'name': 'Ember Scout', 'element': 'fire', 'rarity': 'common', 'attack': 1, 'health': 2, 'cost': 1,
+             'ascii': '  /\\\n ( * )\n  \\_/', 'ability': 'Rush: Can attack immediately'},
+            {'name': 'Cinder Beast', 'element': 'fire', 'rarity': 'common', 'attack': 2, 'health': 3, 'cost': 3,
+             'ascii': ' /^^^\\\n( >=< )\n  \\_/', 'ability': 'Burn: Deal 1 damage when played'},
             
-            # Water Commons  
+            # Water Commons (4 total)
             {'name': 'Water Drop', 'element': 'water', 'rarity': 'common', 'attack': 1, 'health': 3, 'cost': 1,
              'ascii': '  ~\n (~)\n  ~', 'ability': 'None'},
             {'name': 'Stream Fish', 'element': 'water', 'rarity': 'common', 'attack': 2, 'health': 2, 'cost': 2,
              'ascii': ' ><>\n~~~~\n ><>', 'ability': 'None'},
+            {'name': 'Tide Caller', 'element': 'water', 'rarity': 'common', 'attack': 1, 'health': 4, 'cost': 2,
+             'ascii': '  ~~~\n ( o )\n  ~~~', 'ability': 'Heal: Restore 1 health when played'},
+            {'name': 'Coral Guard', 'element': 'water', 'rarity': 'common', 'attack': 0, 'health': 5, 'cost': 2,
+             'ascii': ' ^^^^^\n^  o  ^\n ^^^^^', 'ability': 'Taunt: Enemies must attack this first'},
             
-            # Earth Commons
+            # Earth Commons (4 total)
             {'name': 'Rock Pebble', 'element': 'earth', 'rarity': 'common', 'attack': 1, 'health': 4, 'cost': 2,
              'ascii': ' ###\n#####\n ###', 'ability': 'None'},
             {'name': 'Mud Golem', 'element': 'earth', 'rarity': 'common', 'attack': 3, 'health': 3, 'cost': 3,
              'ascii': ' ###\n# O #\n ###', 'ability': 'None'},
+            {'name': 'Stone Beetle', 'element': 'earth', 'rarity': 'common', 'attack': 2, 'health': 1, 'cost': 1,
+             'ascii': ' /###\\\n( o o )\n \\___/', 'ability': 'Armor: Reduce damage by 1'},
+            {'name': 'Crystal Miner', 'element': 'earth', 'rarity': 'common', 'attack': 1, 'health': 3, 'cost': 2,
+             'ascii': '  ###\n # o #\n  ###', 'ability': 'Draw: Draw a card when played'},
             
-            # Air Commons
+            # Air Commons (4 total)
             {'name': 'Wind Wisp', 'element': 'air', 'rarity': 'common', 'attack': 3, 'health': 1, 'cost': 1,
              'ascii': ' ~~~\n~ o ~\n ~~~', 'ability': 'None'},
             {'name': 'Cloud Sprite', 'element': 'air', 'rarity': 'common', 'attack': 2, 'health': 3, 'cost': 2,
              'ascii': ' ~~~~\n(  o )\n ~~~~', 'ability': 'None'},
+            {'name': 'Gust Rider', 'element': 'air', 'rarity': 'common', 'attack': 2, 'health': 2, 'cost': 2,
+             'ascii': '  /\\\n ( o )\n  \\_/', 'ability': 'Flying: Cannot be blocked'},
+            {'name': 'Zephyr Dancer', 'element': 'air', 'rarity': 'common', 'attack': 1, 'health': 1, 'cost': 1,
+             'ascii': '   ^\n  /|\\\n ( o )', 'ability': 'Evasion: 50% chance to dodge attacks'},
+            
+            # Light Commons (3 total)
+            {'name': 'Light Spark', 'element': 'light', 'rarity': 'common', 'attack': 1, 'health': 1, 'cost': 1,
+             'ascii': '   *\n  /|\\\n   o', 'ability': 'Illuminate: Reveal enemy hand'},
+            {'name': 'Dawn Wisp', 'element': 'light', 'rarity': 'common', 'attack': 2, 'health': 2, 'cost': 2,
+             'ascii': '  ***\n ( o )\n  ***', 'ability': 'Purify: Remove negative effects'},
+            {'name': 'Radiant Orb', 'element': 'light', 'rarity': 'common', 'attack': 0, 'health': 3, 'cost': 1,
+             'ascii': '  ***\n * O *\n  ***', 'ability': 'Shield: Absorb next attack'},
+            
+            # Dark Commons (3 total)
+            {'name': 'Shadow Wisp', 'element': 'dark', 'rarity': 'common', 'attack': 2, 'health': 1, 'cost': 1,
+             'ascii': '  ...\n ( x )\n  ...', 'ability': 'Stealth: Cannot be targeted'},
+            {'name': 'Void Spawn', 'element': 'dark', 'rarity': 'common', 'attack': 1, 'health': 2, 'cost': 1,
+             'ascii': '  ###\n # x #\n  ###', 'ability': 'Drain: Heal when dealing damage'},
+            {'name': 'Night Crawler', 'element': 'dark', 'rarity': 'common', 'attack': 3, 'health': 1, 'cost': 2,
+             'ascii': ' /xxx\\\n( x x )\n \\___/', 'ability': 'Ambush: +2 attack if enemy damaged'},
         ]
         
-        # Rare Cards (6 total)
+        # Rare Cards (18 total - 3 per element)
         rare_cards = [
+            # Fire Rares (3 total)
             {'name': 'Fire Wolf', 'element': 'fire', 'rarity': 'rare', 'attack': 4, 'health': 3, 'cost': 3,
              'ascii': '  /\\_/\\\n ( o.o )\n  > ^ <', 'ability': 'Burn: Deal 1 extra damage'},
+            {'name': 'Lava Elemental', 'element': 'fire', 'rarity': 'rare', 'attack': 3, 'health': 4, 'cost': 4,
+             'ascii': '  /^^^\\\n ( >=< )\n  \\___/', 'ability': 'Molten: Damage attackers'},
+            {'name': 'Flame Phoenix', 'element': 'fire', 'rarity': 'rare', 'attack': 2, 'health': 2, 'cost': 3,
+             'ascii': '   /\\\n  /  \\\n ( ** )\n  \\__/', 'ability': 'Rebirth: Return when destroyed'},
+            
+            # Water Rares (3 total)
             {'name': 'Ice Mage', 'element': 'water', 'rarity': 'rare', 'attack': 3, 'health': 4, 'cost': 4,
              'ascii': '   /|\\\n  /*|*\\\n ( o o )', 'ability': 'Freeze: Skip enemy turn'},
+            {'name': 'Tidal Kraken', 'element': 'water', 'rarity': 'rare', 'attack': 5, 'health': 3, 'cost': 4,
+             'ascii': '  ~~~~~\n ~(o o)~\n~  \\_/  ~\n ~~~~~', 'ability': 'Tentacles: Attack all enemies'},
+            {'name': 'Frost Guardian', 'element': 'water', 'rarity': 'rare', 'attack': 1, 'health': 6, 'cost': 4,
+             'ascii': '  ^^^^^\n ^ o o ^\n^  _  ^\n ^^^^^', 'ability': 'Ice Shield: Reflect damage'},
+            
+            # Earth Rares (3 total)
             {'name': 'Stone Giant', 'element': 'earth', 'rarity': 'rare', 'attack': 5, 'health': 5, 'cost': 5,
              'ascii': '  #####\n #  O  #\n #  _  #\n  #####', 'ability': 'Armor: Reduce damage by 1'},
+            {'name': 'Crystal Golem', 'element': 'earth', 'rarity': 'rare', 'attack': 4, 'health': 4, 'cost': 4,
+             'ascii': '  #***#\n # * * #\n #  _  #\n  #####', 'ability': 'Reflect: Return spell damage'},
+            {'name': 'Mountain Troll', 'element': 'earth', 'rarity': 'rare', 'attack': 6, 'health': 2, 'cost': 4,
+             'ascii': '  #####\n # >O< #\n #  ^  #\n  #####', 'ability': 'Rage: +1 attack when damaged'},
+            
+            # Air Rares (3 total)
             {'name': 'Storm Eagle', 'element': 'air', 'rarity': 'rare', 'attack': 4, 'health': 2, 'cost': 3,
              'ascii': '  \\   /\n   \\_/\n  (o o)\n   ^^^', 'ability': 'Swift: Attack first'},
+            {'name': 'Lightning Bird', 'element': 'air', 'rarity': 'rare', 'attack': 3, 'health': 3, 'cost': 3,
+             'ascii': '   /\\\n  /  \\\n ( ^^ )\n  \\__/', 'ability': 'Shock: Stun target'},
+            {'name': 'Wind Dancer', 'element': 'air', 'rarity': 'rare', 'attack': 2, 'health': 4, 'cost': 3,
+             'ascii': '   ^\n  /|\\\n ( o )\n  /|\\', 'ability': 'Dodge: 75% evasion chance'},
+            
+            # Light Rares (3 total)
             {'name': 'Light Fairy', 'element': 'light', 'rarity': 'rare', 'attack': 2, 'health': 3, 'cost': 3,
              'ascii': '   *\n  /|\\\n ( o )\n  /|\\', 'ability': 'Heal: Restore 2 health'},
+            {'name': 'Solar Angel', 'element': 'light', 'rarity': 'rare', 'attack': 4, 'health': 4, 'cost': 5,
+             'ascii': '   ***\n  /|\\\n ( o )\n  /|\\', 'ability': 'Blessing: Boost ally stats'},
+            {'name': 'Radiant Knight', 'element': 'light', 'rarity': 'rare', 'attack': 3, 'health': 5, 'cost': 4,
+             'ascii': '   /|\\\n  [***]\n ( o )\n  /|\\', 'ability': 'Protection: Shield allies'},
+            
+            # Dark Rares (3 total)
             {'name': 'Shadow Cat', 'element': 'dark', 'rarity': 'rare', 'attack': 3, 'health': 2, 'cost': 2,
              'ascii': '  /\\_/\\\n ( -.o )\n  > ^ <', 'ability': 'Stealth: 50% dodge chance'},
+            {'name': 'Void Walker', 'element': 'dark', 'rarity': 'rare', 'attack': 4, 'health': 3, 'cost': 4,
+             'ascii': '  .....\n . x x .\n .  _  .\n  .....', 'ability': 'Phase: Cannot be blocked'},
+            {'name': 'Night Terror', 'element': 'dark', 'rarity': 'rare', 'attack': 5, 'health': 1, 'cost': 3,
+             'ascii': '  xxxxx\n x >o< x\n x  ^  x\n  xxxxx', 'ability': 'Fear: Reduce enemy attack'},
         ]
         
-        # Epic Cards (4 total)
+        # Epic Cards (12 total - 2 per element)
         epic_cards = [
+            # Fire Epics (2 total)
             {'name': 'Fire Dragon', 'element': 'fire', 'rarity': 'epic', 'attack': 6, 'health': 5, 'cost': 6,
              'ascii': '   /\\_/\\\n  /  o  \\\n |  ___  |\n  \\  ^  /\n   \\___/', 'ability': 'Inferno: Deal damage to all enemies'},
+            {'name': 'Inferno Beast', 'element': 'fire', 'rarity': 'epic', 'attack': 7, 'health': 4, 'cost': 6,
+             'ascii': '  /^^^^^\\\n ( >===< )\n  \\  ^  /\n   \\___/', 'ability': 'Immolate: Destroy to deal 5 damage'},
+            
+            # Water Epics (2 total)
             {'name': 'Water Leviathan', 'element': 'water', 'rarity': 'epic', 'attack': 5, 'health': 7, 'cost': 7,
              'ascii': '  ~~~~~~~\n ~  o o  ~\n~   ___   ~\n ~  \\_/  ~\n  ~~~~~~~', 'ability': 'Tsunami: Heal all allies'},
+            {'name': 'Ocean Master', 'element': 'water', 'rarity': 'epic', 'attack': 4, 'health': 8, 'cost': 7,
+             'ascii': '  ~~~~~~~\n ~ /|\\ ~\n~  o o  ~\n ~  _  ~\n  ~~~~~~~', 'ability': 'Tidal Wave: Return all cards to hand'},
+            
+            # Earth Epics (2 total)
             {'name': 'Earth Titan', 'element': 'earth', 'rarity': 'epic', 'attack': 7, 'health': 6, 'cost': 7,
              'ascii': '  #######\n # O   O #\n #   _   #\n #  \\_/  #\n  #######', 'ability': 'Earthquake: Stun all enemies'},
+            {'name': 'Stone Warden', 'element': 'earth', 'rarity': 'epic', 'attack': 5, 'health': 9, 'cost': 8,
+             'ascii': '  #######\n # [***] #\n #  O O  #\n #   _   #\n  #######', 'ability': 'Fortress: Cannot be targeted by spells'},
+            
+            # Air Epics (2 total)
             {'name': 'Sky Lord', 'element': 'air', 'rarity': 'epic', 'attack': 6, 'health': 4, 'cost': 5,
              'ascii': '    /|\\\n   / | \\\n  |  *  |\n   \\ | /\n    \\|/', 'ability': 'Lightning: Deal 3 damage to any target'},
+            {'name': 'Storm Caller', 'element': 'air', 'rarity': 'epic', 'attack': 5, 'health': 5, 'cost': 6,
+             'ascii': '   ^^^^^\n  ^ /|\\ ^\n ^  o o  ^\n  ^  _  ^\n   ^^^^^', 'ability': 'Tempest: All creatures gain flying'},
+            
+            # Light Epics (2 total)
+            {'name': 'Dawn Bringer', 'element': 'light', 'rarity': 'epic', 'attack': 6, 'health': 6, 'cost': 7,
+             'ascii': '   *****\n  * /|\\ *\n * ( o ) *\n  * /|\\ *\n   *****', 'ability': 'Radiance: Heal all allies to full'},
+            {'name': 'Light Avatar', 'element': 'light', 'rarity': 'epic', 'attack': 5, 'health': 7, 'cost': 6,
+             'ascii': '   *****\n  *  |  *\n * (***) *\n  * /|\\ *\n   *****', 'ability': 'Divine Shield: Immune to damage for 1 turn'},
+            
+            # Dark Epics (2 total)
+            {'name': 'Shadow Assassin', 'element': 'dark', 'rarity': 'epic', 'attack': 8, 'health': 3, 'cost': 6,
+             'ascii': '  .......\n . /xxx\\ .\n. ( x x ) .\n . \\___/ .\n  .......', 'ability': 'Backstab: Deal double damage to damaged enemies'},
+            {'name': 'Void Lord', 'element': 'dark', 'rarity': 'epic', 'attack': 6, 'health': 5, 'cost': 7,
+             'ascii': '  xxxxxxx\n x  ___  x\n x (o o) x\n x  \\_/  x\n  xxxxxxx', 'ability': 'Consume: Destroy ally to gain +3/+3'},
         ]
         
-        # Legendary Cards (2 total)
+        # Legendary Cards (6 total - 1 per element)
         legendary_cards = [
             {'name': 'Phoenix God', 'element': 'light', 'rarity': 'legendary', 'attack': 8, 'health': 8, 'cost': 9,
              'ascii': '     /|\\\n    / | \\\n   |  *  |\n  /|\\ | /|\\\n / | \\|/ | \\\n|  |  *  |  |\n \\ |     | /\n  \\|_____|/', 'ability': 'Rebirth: Return to hand when destroyed'},
             {'name': 'Void Demon', 'element': 'dark', 'rarity': 'legendary', 'attack': 9, 'health': 6, 'cost': 8,
              'ascii': '   #######\n  # \\   / #\n #   \\_/   #\n#  (o) (o)  #\n #    ^    #\n  # \\_-_/ #\n   #######', 'ability': 'Devour: Destroy any card and gain its stats'},
+            {'name': 'Eternal Flame', 'element': 'fire', 'rarity': 'legendary', 'attack': 10, 'health': 5, 'cost': 9,
+             'ascii': '   /^^^^^\\\n  / ===== \\\n | (  *  ) |\n  \\ ===== /\n   \\^^^^^/', 'ability': 'Immortal: Cannot be destroyed by spells'},
+            {'name': 'Primordial Sea', 'element': 'water', 'rarity': 'legendary', 'attack': 6, 'health': 10, 'cost': 10,
+             'ascii': '  ~~~~~~~~~\n ~ ~~~~~~~ ~\n~  ( *** )  ~\n ~ ~~~~~~~ ~\n  ~~~~~~~~~', 'ability': 'Flood: Reset all cards to base stats'},
+            {'name': 'World Tree', 'element': 'earth', 'rarity': 'legendary', 'attack': 5, 'health': 12, 'cost': 10,
+             'ascii': '    #####\n   # *** #\n  #  ***  #\n #   ***   #\n#    ***    #\n     ###', 'ability': 'Growth: Gain +1/+1 each turn'},
+            {'name': 'Sky Sovereign', 'element': 'air', 'rarity': 'legendary', 'attack': 8, 'health': 7, 'cost': 9,
+             'ascii': '   ^^^^^^^\n  ^ ***** ^\n ^ ( *** ) ^\n  ^ ***** ^\n   ^^^^^^^', 'ability': 'Dominion: Control all flying creatures'},
         ]
         
         # Combine all cards
@@ -946,6 +1058,170 @@ class CardGame:
         return cards
 
 card_game = CardGame()
+
+# Daily Rewards Functions
+def get_daily_reward_data(user_id):
+    """Get user's daily reward data"""
+    global _current_db_type
+    conn = get_db_connection()
+    c = conn.cursor()
+    
+    try:
+        if _current_db_type == 'postgresql':
+            c.execute('SELECT * FROM daily_rewards WHERE user_id = %s', (user_id,))
+        else:
+            c.execute('SELECT * FROM daily_rewards WHERE user_id = ?', (user_id,))
+        
+        result = c.fetchone()
+        if not result:
+            # Create new daily reward record
+            if _current_db_type == 'postgresql':
+                c.execute('INSERT INTO daily_rewards (user_id) VALUES (%s)', (user_id,))
+            else:
+                c.execute('INSERT INTO daily_rewards (user_id) VALUES (?)', (user_id,))
+            conn.commit()
+            result = (user_id, None, 0, 0, 0)
+        
+        return result
+    except Exception as e:
+        print(f"Error getting daily reward data: {e}")
+        return None
+    finally:
+        conn.close()
+
+def claim_daily_reward(user_id):
+    """Claim daily reward and return reward info"""
+    global _current_db_type
+    conn = get_db_connection()
+    c = conn.cursor()
+    
+    try:
+        # Get current reward data
+        reward_data = get_daily_reward_data(user_id)
+        if not reward_data:
+            return None
+        
+        user_id, last_claim_date, current_streak, total_claims, best_streak = reward_data
+        today = datetime.now().date()
+        
+        # Check if already claimed today
+        if last_claim_date and str(last_claim_date) == str(today):
+            return {'already_claimed': True, 'streak': current_streak}
+        
+        # Calculate new streak
+        yesterday = today - timedelta(days=1)
+        if last_claim_date and str(last_claim_date) == str(yesterday):
+            # Continuing streak
+            new_streak = current_streak + 1
+        elif last_claim_date and str(last_claim_date) < str(yesterday):
+            # Streak broken, reset to 1
+            new_streak = 1
+        else:
+            # First claim or continuing from today
+            new_streak = current_streak + 1 if current_streak > 0 else 1
+        
+        # Update best streak
+        new_best_streak = max(best_streak, new_streak)
+        
+        # Generate rewards based on streak
+        rewards = generate_daily_rewards(new_streak)
+        
+        # Update database
+        if _current_db_type == 'postgresql':
+            c.execute('''UPDATE daily_rewards 
+                         SET last_claim_date = %s, current_streak = %s, total_claims = %s, best_streak = %s 
+                         WHERE user_id = %s''',
+                      (today, new_streak, total_claims + 1, new_best_streak, user_id))
+        else:
+            c.execute('''UPDATE daily_rewards 
+                         SET last_claim_date = ?, current_streak = ?, total_claims = ?, best_streak = ? 
+                         WHERE user_id = ?''',
+                      (today, new_streak, total_claims + 1, new_best_streak, user_id))
+        
+        # Add cards to collection
+        for card_name in rewards['cards']:
+            card_data = get_card_by_name(card_name)
+            if card_data:
+                card_id = card_data[0]
+                add_card_to_collection(user_id, card_id, 1)
+        
+        conn.commit()
+        
+        return {
+            'already_claimed': False,
+            'streak': new_streak,
+            'best_streak': new_best_streak,
+            'total_claims': total_claims + 1,
+            'rewards': rewards
+        }
+        
+    except Exception as e:
+        print(f"Error claiming daily reward: {e}")
+        return None
+    finally:
+        conn.close()
+
+def generate_daily_rewards(streak):
+    """Generate daily rewards based on streak"""
+    rewards = {'cards': [], 'bonus': None}
+    
+    # Base reward: 1 card
+    if streak < 7:
+        # Days 1-6: 1 random card
+        rarity_roll = random.randint(1, 100)
+        if rarity_roll <= 70:
+            selected_rarity = 'common'
+        elif rarity_roll <= 90:
+            selected_rarity = 'rare'
+        elif rarity_roll <= 98:
+            selected_rarity = 'epic'
+        else:
+            selected_rarity = 'legendary'
+        
+        rarity_cards = [card for card in card_game.card_library if card['rarity'] == selected_rarity]
+        if rarity_cards:
+            selected_card = random.choice(rarity_cards)
+            rewards['cards'].append(selected_card['name'])
+    
+    elif streak == 7:
+        # Day 7: 2 cards + 1 guaranteed rare
+        rewards['cards'].append(random.choice([card for card in card_game.card_library if card['rarity'] == 'common'])['name'])
+        rewards['cards'].append(random.choice([card for card in card_game.card_library if card['rarity'] == 'rare'])['name'])
+        rewards['bonus'] = '🎉 Weekly Bonus!'
+    
+    elif streak == 30:
+        # Day 30: Special legendary card
+        legendary_cards = [card for card in card_game.card_library if card['rarity'] == 'legendary']
+        if legendary_cards:
+            rewards['cards'].append(random.choice(legendary_cards)['name'])
+        rewards['bonus'] = '🏆 Monthly Legendary!'
+    
+    elif streak % 7 == 0:
+        # Every 7 days after first week: 2 cards
+        rewards['cards'].append(random.choice([card for card in card_game.card_library if card['rarity'] == 'common'])['name'])
+        rewards['cards'].append(random.choice([card for card in card_game.card_library if card['rarity'] == 'rare'])['name'])
+        rewards['bonus'] = f'🔥 {streak} Day Streak!'
+    
+    else:
+        # Regular days: 1 card with better odds for higher streaks
+        rarity_roll = random.randint(1, 100)
+        streak_bonus = min(streak * 2, 20)  # Up to 20% bonus
+        
+        if rarity_roll <= (60 - streak_bonus):
+            selected_rarity = 'common'
+        elif rarity_roll <= (85 - streak_bonus // 2):
+            selected_rarity = 'rare'
+        elif rarity_roll <= (96 - streak_bonus // 4):
+            selected_rarity = 'epic'
+        else:
+            selected_rarity = 'legendary'
+        
+        rarity_cards = [card for card in card_game.card_library if card['rarity'] == selected_rarity]
+        if rarity_cards:
+            selected_card = random.choice(rarity_cards)
+            rewards['cards'].append(selected_card['name'])
+    
+    return rewards
 
 # Card Storage Functions
 def add_card_to_collection(user_id, card_id, quantity=1):
@@ -1142,7 +1418,7 @@ async def cards_command(ctx, page: int = 1):
     # Add collection stats
     embed.add_field(
         name="📊 Collection Stats", 
-        value=f"📦 **{total_cards}** total cards\n🎴 **{unique_cards}**/20 unique cards\n💎 **{rare_cards}** rare+ cards", 
+        value=f"📦 **{total_cards}** total cards\n🎴 **{unique_cards}**/58 unique cards\n💎 **{rare_cards}** rare+ cards", 
         inline=True
     )
     
@@ -1403,7 +1679,7 @@ async def cards_slash(interaction: discord.Interaction, page: int = 1):
         )
         embed.add_field(
             name="Getting Started", 
-            value="🎁 Use `/pack` to open card packs\n🎴 Collect all 20 unique cards\n⚔️ Battles coming soon!",
+            value="🎁 Use `/pack` to open card packs\n🎴 Collect all 58 unique cards\n⚔️ Battles coming soon!",
             inline=False
         )
         await interaction.response.send_message(embed=embed)
@@ -1551,6 +1827,97 @@ async def view_slash(interaction: discord.Interaction, card_name: str):
     )
     
     embed.set_footer(text="Use /pack to collect cards • Use /cards to view your collection")
+    
+    await interaction.response.send_message(embed=embed)
+
+@bot.tree.command(name='daily', description='Claim your daily card reward')
+async def daily_slash(interaction: discord.Interaction):
+    """Claim daily card reward"""
+    if get_config('game_enabled') != 'True':
+        await interaction.response.send_message("The card game is currently disabled.", ephemeral=True)
+        return
+    
+    # Claim daily reward
+    reward_result = claim_daily_reward(interaction.user.id)
+    
+    if not reward_result:
+        await interaction.response.send_message("❌ Something went wrong with your daily reward. Please try again.", ephemeral=True)
+        return
+    
+    if reward_result['already_claimed']:
+        embed = discord.Embed(
+            title="🎁 Daily Reward Already Claimed!",
+            description=f"You've already claimed your daily reward today!\n\n🔥 **Current Streak:** {reward_result['streak']} days",
+            color=0xffa500
+        )
+        embed.add_field(
+            name="⏰ Come Back Tomorrow!",
+            value="Your next daily reward will be available in less than 24 hours.",
+            inline=False
+        )
+        embed.set_footer(text="Daily rewards reset at midnight UTC")
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+        return
+    
+    # Display successful reward claim
+    rewards = reward_result['rewards']
+    streak = reward_result['streak']
+    
+    embed = discord.Embed(
+        title="🎁 Daily Reward Claimed!",
+        description=f"🔥 **{streak} Day Streak!** {rewards.get('bonus', '')}\n\nYou received:",
+        color=0x00ff00
+    )
+    
+    # Add cards received
+    for i, card_name in enumerate(rewards['cards'], 1):
+        # Get card details
+        card = None
+        for library_card in card_game.card_library:
+            if library_card['name'] == card_name:
+                card = library_card
+                break
+        
+        if card:
+            element_info = card_game.elements[card['element']]
+            rarity_info = card_game.rarities[card['rarity']]
+            
+            rarity_text = card['rarity'].title()
+            if card['rarity'] in ['epic', 'legendary']:
+                rarity_text = f"**{rarity_text}**"
+            
+            embed.add_field(
+                name=f"Card {i}: {card['name']}",
+                value=f"{element_info['emoji']} {card['element'].title()} • {rarity_text}\n⚔️ {card['attack']} ATK • ❤️ {card['health']} HP",
+                inline=len(rewards['cards']) == 1
+            )
+    
+    # Add streak info
+    streak_info = f"🔥 **Current Streak:** {streak} days\n🏆 **Best Streak:** {reward_result['best_streak']} days\n📅 **Total Claims:** {reward_result['total_claims']}"
+    
+    if streak == 7:
+        streak_info += "\n\n🎉 **Weekly Bonus Unlocked!**"
+    elif streak == 30:
+        streak_info += "\n\n🏆 **Monthly Legendary Unlocked!**"
+    elif streak > 7 and streak % 7 == 0:
+        streak_info += f"\n\n🔥 **{streak} Day Milestone!**"
+    
+    embed.add_field(name="📊 Streak Stats", value=streak_info, inline=False)
+    
+    # Add next reward preview
+    next_reward_text = "🎁 **Tomorrow's Reward:**\n"
+    if streak + 1 == 7:
+        next_reward_text += "🎉 Weekly Bonus: 2 cards + guaranteed rare!"
+    elif streak + 1 == 30:
+        next_reward_text += "🏆 Monthly Bonus: Guaranteed legendary card!"
+    elif (streak + 1) % 7 == 0:
+        next_reward_text += f"🔥 {streak + 1} Day Milestone: 2 cards!"
+    else:
+        next_reward_text += "🎴 1 card with streak bonus odds!"
+    
+    embed.add_field(name="🔮 Next Reward", value=next_reward_text, inline=False)
+    
+    embed.set_footer(text="Use /cards to view your collection • Come back tomorrow for more rewards!")
     
     await interaction.response.send_message(embed=embed)
 
@@ -1857,7 +2224,7 @@ async def help_custom(ctx):
     
     # Footer with additional info
     embed.set_footer(
-        text="💡 Tip: Open packs to collect rare cards! • 🎴 20 unique cards available",
+        text="💡 Tip: Open packs to collect rare cards! • 🎴 58 unique cards available",
     )
     
     await ctx.send(embed=embed)
